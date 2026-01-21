@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Git Workflow
 
 ### Branches
-- `master` : branche de production, merger uniquement sur demande explicite
+- `main` : branche de production, merger uniquement sur demande explicite
 - `development` : branche d'intégration, merger les features terminées dedans
 
 ### Git Worktrees
