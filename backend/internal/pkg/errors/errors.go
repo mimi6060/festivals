@@ -7,6 +7,9 @@ var (
 	ErrUnauthorized = errors.New("unauthorized")
 	ErrForbidden    = errors.New("forbidden")
 
+	// Request errors
+	ErrBadRequest = errors.New("bad request")
+
 	// Resource errors
 	ErrNotFound      = errors.New("resource not found")
 	ErrAlreadyExists = errors.New("resource already exists")

@@ -22,6 +22,9 @@ type Config struct {
 	Auth0Domain   string
 	Auth0Audience string
 
+	// JWT/Security
+	JWTSecret string
+
 	// Stripe
 	StripeSecretKey string
 
@@ -54,6 +57,9 @@ func Load() (*Config, error) {
 		// Auth0
 		Auth0Domain:   getEnv("AUTH0_DOMAIN", ""),
 		Auth0Audience: getEnv("AUTH0_AUDIENCE", ""),
+
+		// JWT/Security
+		JWTSecret: getEnv("JWT_SECRET", "your-super-secret-key-change-in-production"),
 
 		// Stripe
 		StripeSecretKey: getEnv("STRIPE_SECRET_KEY", ""),

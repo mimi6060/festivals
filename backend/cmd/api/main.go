@@ -10,6 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mimi6060/festivals/backend/internal/config"
+	"github.com/mimi6060/festivals/backend/internal/domain/festival"
+	"github.com/mimi6060/festivals/backend/internal/domain/product"
+	"github.com/mimi6060/festivals/backend/internal/domain/stand"
+	"github.com/mimi6060/festivals/backend/internal/domain/wallet"
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/cache"
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/database"
 	"github.com/mimi6060/festivals/backend/internal/middleware"
@@ -63,6 +67,24 @@ func main() {
 		})
 	})
 
+	// Initialize repositories
+	festivalRepo := festival.NewRepository(db)
+	walletRepo := wallet.NewRepository(db)
+	standRepo := stand.NewRepository(db)
+	productRepo := product.NewRepository(db)
+
+	// Initialize services
+	festivalService := festival.NewService(festivalRepo, db)
+	walletService := wallet.NewService(walletRepo, cfg.JWTSecret)
+	standService := stand.NewService(standRepo)
+	productService := product.NewService(productRepo)
+
+	// Initialize handlers
+	festivalHandler := festival.NewHandler(festivalService)
+	walletHandler := wallet.NewHandler(walletService)
+	standHandler := stand.NewHandler(standService)
+	productHandler := product.NewHandler(productService)
+
 	// API v1 routes
 	v1 := router.Group("/api/v1")
 	{
@@ -80,18 +102,25 @@ func main() {
 				c.JSON(http.StatusOK, gin.H{"message": "User info"})
 			})
 
-			// Wallet routes
-			protected.GET("/me/wallet", func(c *gin.Context) {
-				c.JSON(http.StatusOK, gin.H{"message": "Wallet info"})
-			})
+			// Festival management routes (admin)
+			festivalHandler.RegisterRoutes(protected)
+
+			// Wallet routes (user)
+			walletHandler.RegisterRoutes(protected)
 
 			// Festival-scoped routes (requires tenant middleware)
-			festival := protected.Group("/festivals/:festivalId")
-			festival.Use(middleware.Tenant(db))
+			festivalScoped := protected.Group("/festivals/:festivalId")
+			festivalScoped.Use(middleware.Tenant(db))
 			{
-				festival.GET("", func(c *gin.Context) {
-					c.JSON(http.StatusOK, gin.H{"message": "Festival info"})
+				festivalScoped.GET("/dashboard", func(c *gin.Context) {
+					c.JSON(http.StatusOK, gin.H{"message": "Festival dashboard"})
 				})
+
+				// Stand management
+				standHandler.RegisterRoutes(festivalScoped)
+
+				// Product management
+				productHandler.RegisterRoutes(festivalScoped)
 			}
 		}
 	}
