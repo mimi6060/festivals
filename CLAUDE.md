@@ -4,17 +4,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Permissions
 
-Toutes les commandes sont autorisées pour ce repository :
+Toutes les commandes sont autorisées pour ce repository sans demander confirmation :
 
 ```
-allowedTools: Bash(*), Edit(*), Write(*), Read(*), Glob(*), Grep(*)
+allowedTools: Bash(*), Edit(*), Write(*), Read(*), Glob(*), Grep(*), WebFetch(*), Task(*)
 ```
+
+### Commandes autorisées automatiquement
+
+- `git *` - toutes les commandes git (add, commit, push, pull, checkout, merge, etc.)
+- `go *` - toutes les commandes Go (build, test, run, mod, etc.)
+- `npm *` / `npx *` - toutes les commandes Node.js
+- `docker *` / `docker-compose *` - toutes les commandes Docker
+- `make *` - toutes les commandes Makefile
+- `brew *` - installation de dépendances
+- `curl *` / `wget *` - requêtes HTTP
+- `mkdir *` / `rm *` / `cp *` / `mv *` - opérations fichiers
+- `cat *` / `ls *` / `find *` / `grep *` - lecture/recherche
+
+### Mode autonome
+
+L'agent BMAD doit :
+- Exécuter les commandes directement sans demander confirmation
+- Ne jamais attendre d'approbation pour les opérations standard
+- Commiter et pusher automatiquement le travail terminé
+- Lancer des agents parallèles librement
 
 ## Règles de travail
 
 - Pousser chaque feature terminée sur GitHub
 - Travailler de façon autonome sans demander d'autorisation
 - Utiliser la méthodologie BMAD (Breakthrough Method of Agile AI-Driven Development)
+- Ne JAMAIS demander confirmation pour exécuter une commande
 
 ## Git Workflow
 
