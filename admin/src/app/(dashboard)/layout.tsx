@@ -18,7 +18,7 @@ import {
 import { useState } from 'react'
 
 const navigation = [
-  { name: 'Dashboard', href: '/festival/config', icon: LayoutDashboard },
+  { name: 'Dashboard', href: '/', icon: LayoutDashboard, exact: true },
   { name: 'Configuration', href: '/festival/config', icon: Settings },
   { name: 'Billets', href: '/festival/tickets', icon: Ticket },
   { name: 'Produits', href: '/festival/products', icon: ShoppingBag },
@@ -52,7 +52,9 @@ export default function DashboardLayout({
 
         <nav className="mt-6 px-3">
           {navigation.map((item) => {
-            const isActive = pathname.startsWith(item.href)
+            const isActive = 'exact' in item && item.exact
+              ? pathname === item.href
+              : pathname.startsWith(item.href)
             return (
               <Link
                 key={item.name}

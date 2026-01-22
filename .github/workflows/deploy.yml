@@ -1,0 +1,220 @@
+name: Deploy
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+
+jobs:
+  # ============================================
+  # Build and Push Docker Images
+  # ============================================
+  build-and-push:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        include:
+          - context: ./backend
+            dockerfile: Dockerfile
+            image: api
+          - context: ./admin
+            dockerfile: Dockerfile
+            image: admin
+
+    outputs:
+      api-image: ${{ steps.meta-api.outputs.tags }}
+      admin-image: ${{ steps.meta-admin.outputs.tags }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================
+  # Deploy to Staging
+  # ============================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event.inputs.environment == 'staging' || (github.event_name == 'release' && github.event.release.prerelease)
+    environment:
+      name: staging
+      url: https://staging.festivals.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment..."
+          echo "API Image: ${{ needs.build-and-push.outputs.api-image }}"
+          echo "Admin Image: ${{ needs.build-and-push.outputs.admin-image }}"
+
+          # Placeholder for actual deployment commands
+          # Options include:
+
+          # Option 1: SSH and docker-compose
+          # ssh ${{ secrets.STAGING_HOST }} "cd /app && docker-compose pull && docker-compose up -d"
+
+          # Option 2: Kubernetes
+          # kubectl set image deployment/api api=${{ needs.build-and-push.outputs.api-image }}
+          # kubectl set image deployment/admin admin=${{ needs.build-and-push.outputs.admin-image }}
+
+          # Option 3: AWS ECS
+          # aws ecs update-service --cluster staging --service api --force-new-deployment
+
+          # Option 4: Fly.io
+          # flyctl deploy --image ${{ needs.build-and-push.outputs.api-image }}
+
+          # Option 5: Railway, Render, or other PaaS
+          # curl -X POST ${{ secrets.STAGING_DEPLOY_WEBHOOK }}
+
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests against staging..."
+          # curl -f https://staging-api.festivals.example.com/health
+          # curl -f https://staging.festivals.example.com
+
+      - name: Notify deployment
+        if: always()
+        run: |
+          echo "Staging deployment status: ${{ job.status }}"
+          # Slack/Discord notification placeholder
+          # curl -X POST -H 'Content-type: application/json' \
+          #   --data '{"text":"Staging deployment ${{ job.status }}"}' \
+          #   ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ============================================
+  # Deploy to Production
+  # ============================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging]
+    if: |
+      always() &&
+      (github.event.inputs.environment == 'production' || (github.event_name == 'release' && !github.event.release.prerelease)) &&
+      (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    environment:
+      name: production
+      url: https://festivals.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create database backup
+        run: |
+          echo "Creating database backup before deployment..."
+          # pg_dump or cloud-specific backup command
+          # aws rds create-db-snapshot --db-instance-identifier festivals-prod
+
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment..."
+          echo "API Image: ${{ needs.build-and-push.outputs.api-image }}"
+          echo "Admin Image: ${{ needs.build-and-push.outputs.admin-image }}"
+
+          # Placeholder for actual deployment commands
+          # Use same options as staging but with production configuration
+
+      - name: Run database migrations
+        run: |
+          echo "Running database migrations..."
+          # migrate -path ./backend/internal/infrastructure/database/migrations -database "$DATABASE_URL" up
+
+      - name: Verify deployment
+        run: |
+          echo "Verifying production deployment..."
+          # curl -f https://api.festivals.example.com/health
+          # curl -f https://festivals.example.com
+
+          # Check service health
+          # kubectl rollout status deployment/api
+          # kubectl rollout status deployment/admin
+
+      - name: Notify deployment
+        if: always()
+        run: |
+          echo "Production deployment status: ${{ job.status }}"
+          # Slack/Discord notification placeholder
+
+  # ============================================
+  # Rollback Job (Manual Trigger)
+  # ============================================
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    if: false  # Only run manually via workflow_dispatch
+    environment:
+      name: production
+
+    steps:
+      - name: Rollback to previous version
+        run: |
+          echo "Rolling back to previous version..."
+          # kubectl rollout undo deployment/api
+          # kubectl rollout undo deployment/admin
+
+          # Or restore from specific version
+          # kubectl rollout undo deployment/api --to-revision=2
+
+      - name: Verify rollback
+        run: |
+          echo "Verifying rollback..."
+          # kubectl rollout status deployment/api

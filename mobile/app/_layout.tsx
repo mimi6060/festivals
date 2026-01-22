@@ -1,8 +1,17 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useAuthStore } from '@/stores/authStore';
+import {
+  registerForPushNotifications,
+  savePushToken,
+  initializeNotificationListeners,
+  getInitialNotification,
+  handleNotificationResponse,
+  setBadgeCount,
+} from '@/lib/notifications';
+import { useNotificationStore, selectUnreadCount } from '@/stores/notificationStore';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -22,7 +31,23 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(staff)" />
+        <Stack.Screen
+          name="ticket/[id]"
+          options={{
+            headerShown: true,
+            title: 'Mon Billet',
+          }}
+        />
+        <Stack.Screen
+          name="ticket/transfer"
+          options={{
+            headerShown: true,
+            title: 'Transferer',
+            presentation: 'modal',
+          }}
+        />
         <Stack.Screen name="sos" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="wallet" options={{ headerShown: false }} />
       </Stack>
     </>
   );
