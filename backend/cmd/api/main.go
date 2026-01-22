@@ -169,7 +169,7 @@ func main() {
 			walletHandler.RegisterRoutes(protected)
 
 			// Festival-scoped routes (requires tenant middleware)
-			festivalScoped := protected.Group("/festivals/:festivalId")
+			festivalScoped := protected.Group("/festivals/:id")
 			festivalScoped.Use(middleware.Tenant(db))
 			{
 				festivalScoped.GET("/dashboard", func(c *gin.Context) {

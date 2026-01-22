@@ -214,7 +214,7 @@ func (h *PublicHandler) ListStages(c *gin.Context) {
 		return
 	}
 
-	stages, _, err := h.lineupService.ListStages(c.Request.Context(), festivalID, 1, 100)
+	stages, err := h.lineupService.ListStages(c.Request.Context(), festivalID)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -251,7 +251,7 @@ func (h *PublicHandler) GetSchedule(c *gin.Context) {
 
 	day := c.Query("day")
 
-	schedule, err := h.lineupService.GetDaySchedule(c.Request.Context(), festivalID, day)
+	schedule, err := h.lineupService.GetLineupByDay(c.Request.Context(), festivalID, day)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -459,12 +459,12 @@ func (h *PublicHandler) HealthCheck(c *gin.Context) {
 func (h *PublicHandler) validateFestivalAccess(c *gin.Context, festivalID uuid.UUID) bool {
 	keyFestivalID := c.GetString("api_festival_id")
 	if keyFestivalID == "" {
-		response.Error(c, http.StatusUnauthorized, "API_KEY_REQUIRED", "API key authentication required", nil)
+		response.Unauthorized(c, "API key authentication required")
 		return false
 	}
 
 	if keyFestivalID != festivalID.String() {
-		response.Error(c, http.StatusForbidden, "ACCESS_DENIED", "Your API key does not have access to this festival", nil)
+		response.Forbidden(c, "Your API key does not have access to this festival")
 		return false
 	}
 

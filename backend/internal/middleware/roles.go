@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"festivals/internal/domain/auth"
+	"github.com/mimi6060/festivals/backend/internal/domain/auth"
 )
 
 // AccessChecker is an interface for checking resource access
@@ -154,8 +154,8 @@ func RequireStaff() gin.HandlerFunc {
 	return RequireAnyRole(RoleAdmin, RoleOrganizer, RoleStaff)
 }
 
-// RequirePermission middleware checks if the user has a specific permission
-func RequirePermission(permission string) gin.HandlerFunc {
+// RequireRolePermission middleware checks if the user has a specific permission (string-based)
+func RequireRolePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Admins bypass permission checks
 		if hasRoleInContext(c, RoleAdmin) {
@@ -186,8 +186,8 @@ func RequirePermission(permission string) gin.HandlerFunc {
 	}
 }
 
-// RequireAnyPermission middleware checks if the user has any of the specified permissions
-func RequireAnyPermission(permissions ...string) gin.HandlerFunc {
+// RequireAnyRolePermission middleware checks if the user has any of the specified permissions (string-based)
+func RequireAnyRolePermission(permissions ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Admins bypass permission checks
 		if hasRoleInContext(c, RoleAdmin) {

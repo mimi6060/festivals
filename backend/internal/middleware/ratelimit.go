@@ -154,7 +154,7 @@ func RateLimit(cfg RateLimitConfig) gin.HandlerFunc {
 
 		// Apply rate limiting using sliding window
 		ctx := c.Request.Context()
-		allowed, info, err := checkRateLimit(ctx, cfg.RedisClient, key, limit, time.Minute)
+		allowed, info, err := checkSlidingWindowRateLimit(ctx, cfg.RedisClient, key, limit, time.Minute)
 		if err != nil {
 			log.Error().Err(err).Str("key", key).Msg("Rate limit check failed")
 			// Fail open - allow request if rate limiting fails
@@ -194,7 +194,7 @@ func RateLimitByEndpoint(redisClient *redis.Client, requestsPerMinute int) gin.H
 		}
 
 		ctx := c.Request.Context()
-		allowed, info, err := checkRateLimit(ctx, redisClient, key, requestsPerMinute, time.Minute)
+		allowed, info, err := checkSlidingWindowRateLimit(ctx, redisClient, key, requestsPerMinute, time.Minute)
 		if err != nil {
 			log.Error().Err(err).Str("key", key).Msg("Endpoint rate limit check failed")
 			c.Next()
@@ -212,8 +212,8 @@ func RateLimitByEndpoint(redisClient *redis.Client, requestsPerMinute int) gin.H
 	}
 }
 
-// checkRateLimit implements sliding window rate limiting using Redis
-func checkRateLimit(ctx context.Context, client *redis.Client, key string, limit int, window time.Duration) (bool, *RateLimitInfo, error) {
+// checkSlidingWindowRateLimit implements sliding window rate limiting using Redis
+func checkSlidingWindowRateLimit(ctx context.Context, client *redis.Client, key string, limit int, window time.Duration) (bool, *RateLimitInfo, error) {
 	now := time.Now()
 	windowStart := now.Add(-window)
 
@@ -462,7 +462,7 @@ func AdaptiveRateLimit(redisClient *redis.Client, baseLimit int, loadKey string)
 			key = "ratelimit:adaptive:ip:" + c.ClientIP()
 		}
 
-		allowed, info, err := checkRateLimit(ctx, redisClient, key, adjustedLimit, time.Minute)
+		allowed, info, err := checkSlidingWindowRateLimit(ctx, redisClient, key, adjustedLimit, time.Minute)
 		if err != nil {
 			log.Error().Err(err).Str("key", key).Msg("Adaptive rate limit check failed")
 			c.Next()

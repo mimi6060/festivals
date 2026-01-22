@@ -43,8 +43,8 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		products.POST("/:id/stock", h.UpdateStock)
 	}
 
-	// Stand products endpoint
-	r.GET("/stands/:standId/products", h.ListByStand)
+	// Stand products endpoint (uses same :id as stands routes)
+	r.GET("/stands/:id/products", h.ListByStand)
 }
 
 // Create creates a new product
@@ -193,7 +193,7 @@ func (h *Handler) List(c *gin.Context) {
 // @Security BearerAuth
 // @Router /stands/{standId}/products [get]
 func (h *Handler) ListByStand(c *gin.Context) {
-	standID, err := uuid.Parse(c.Param("standId"))
+	standID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.BadRequest(c, "INVALID_ID", "Invalid stand ID", nil)
 		return
