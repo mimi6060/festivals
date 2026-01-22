@@ -544,9 +544,8 @@ func (s *Service) writeTransactionsXLSX(f *excelize.File, sheet string, data []T
 
 	// Style header
 	headerStyle, _ := f.NewStyle(&excelize.Style{
-		Font:      &excelize.Font{Bold: true},
-		Fill:      excelize.Fill{Type: "pattern", Color: []string{"#4472C4"}, Pattern: 1},
-		Font:      &excelize.Font{Bold: true, Color: "#FFFFFF"},
+		Font: &excelize.Font{Bold: true, Color: "#FFFFFF"},
+		Fill: excelize.Fill{Type: "pattern", Color: []string{"#4472C4"}, Pattern: 1},
 	})
 	f.SetRowStyle(sheet, 1, 1, headerStyle)
 

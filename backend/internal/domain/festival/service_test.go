@@ -98,7 +98,7 @@ func TestService_Create(t *testing.T) {
 
 			// Service requires a db for tenant schema creation, but we're testing without it
 			// For unit testing, we skip the database dependency
-			service := &Service{repo: mockRepo, db: nil}
+			_ = &Service{repo: mockRepo, db: nil}
 
 			// Note: In the real service, db is used for tenant schema creation
 			// We test the repository interaction part here

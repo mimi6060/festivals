@@ -226,7 +226,7 @@ func (p *ImageProcessor) RotateImage(reader io.Reader, angle float64) (*bytes.Bu
 	case 270:
 		rotated = imaging.Rotate270(img)
 	default:
-		rotated = imaging.Rotate(img, angle, imaging.Lanczos)
+		rotated = imaging.Rotate(img, angle, image.Transparent)
 	}
 
 	return p.encodeImage(rotated, ImageFormat(format), p.jpegQuality)

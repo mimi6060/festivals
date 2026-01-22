@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Ticket Purchase Confirmation</title>
+</head>
+<body>
+    <h1>Ticket Purchase Confirmed</h1>
+    <p>Hi {{.UserName}},</p>
+    <p>Your ticket purchase is confirmed!</p>
+    <ul>
+        <li>Festival: {{.FestivalName}}</li>
+        <li>Ticket Type: {{.TicketType}}</li>
+        <li>Code: {{.TicketCode}}</li>
+        <li>Quantity: {{.Quantity}}</li>
+        <li>Total: {{.TotalAmount}}</li>
+        <li>Date: {{.FestivalDate}}</li>
+        <li>Venue: {{.FestivalVenue}}</li>
+    </ul>
+    <p>View your ticket at: <a href="{{.TicketURL}}">{{.TicketURL}}</a></p>
+</body>
+</html>

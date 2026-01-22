@@ -95,7 +95,7 @@ func main() {
 
 		// Protected routes
 		protected := v1.Group("")
-		protected.Use(middleware.Auth(cfg.Auth0Domain, cfg.Auth0Audience))
+		protected.Use(middleware.AuthWithSimpleConfig(cfg.Auth0Domain, cfg.Auth0Audience))
 		{
 			// User routes
 			protected.GET("/me", func(c *gin.Context) {

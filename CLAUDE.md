@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Permissions
+
+Toutes les commandes sont autorisées pour ce repository :
+
+```
+allowedTools: Bash(*), Edit(*), Write(*), Read(*), Glob(*), Grep(*)
+```
+
 ## Règles de travail
 
 - Pousser chaque feature terminée sur GitHub

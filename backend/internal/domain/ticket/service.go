@@ -261,6 +261,19 @@ func (s *Service) ListTicketsByFestival(ctx context.Context, festivalID uuid.UUI
 	return s.repo.ListTicketsByFestival(ctx, festivalID, offset, perPage)
 }
 
+// ListTicketsByUser lists all tickets for a user
+func (s *Service) ListTicketsByUser(ctx context.Context, userID uuid.UUID, page, perPage int) ([]Ticket, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 100 {
+		perPage = 20
+	}
+
+	offset := (page - 1) * perPage
+	return s.repo.ListTicketsByUser(ctx, userID, offset, perPage)
+}
+
 // ScanTicket scans a ticket for entry/exit validation
 func (s *Service) ScanTicket(ctx context.Context, festivalID uuid.UUID, req ScanTicketRequest, scannedBy uuid.UUID) (*ScanResponse, error) {
 	now := time.Now()

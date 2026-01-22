@@ -288,7 +288,7 @@ func (h *Handler) ListTickets(c *gin.Context) {
 		}
 	}
 
-	tickets, total, err := h.service.ListTickets(c.Request.Context(), filters, page, perPage)
+	tickets, total, err := h.service.ListTicketsByFestival(c.Request.Context(), filters.FestivalID, page, perPage)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -387,7 +387,7 @@ func (h *Handler) ScanTicket(c *gin.Context) {
 		return
 	}
 
-	scanResult, err := h.service.ScanTicket(c.Request.Context(), festivalID, staffID, req)
+	scanResult, err := h.service.ScanTicket(c.Request.Context(), festivalID, req, staffID)
 	if err != nil {
 		// Handle specific scan errors with appropriate responses
 		switch err {
@@ -520,7 +520,7 @@ func (h *Handler) GetMyTickets(c *gin.Context) {
 		filters.Status = &ticketStatus
 	}
 
-	tickets, total, err := h.service.ListTickets(c.Request.Context(), filters, page, perPage)
+	tickets, total, err := h.service.ListTicketsByUser(c.Request.Context(), userID, page, perPage)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

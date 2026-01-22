@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Top-Up Confirmation</title>
+</head>
+<body>
+    <h1>Wallet Top-Up Confirmed</h1>
+    <p>Hi {{.UserName}},</p>
+    <p>Your wallet top-up is confirmed!</p>
+    <ul>
+        <li>Festival: {{.FestivalName}}</li>
+        <li>Amount: {{.Amount}}</li>
+        <li>New Balance: {{.NewBalance}}</li>
+        <li>Transaction ID: {{.TransactionID}}</li>
+        <li>Date: {{.TransactionDate}}</li>
+        <li>Payment Method: {{.PaymentMethod}}</li>
+    </ul>
+    <p>View your wallet at: <a href="{{.WalletURL}}">{{.WalletURL}}</a></p>
+</body>
+</html>

@@ -1,7 +1,6 @@
 package wallet
 
 import (
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"

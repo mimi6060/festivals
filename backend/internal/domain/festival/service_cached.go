@@ -261,7 +261,7 @@ func (s *CachedService) invalidateItem(ctx context.Context, festival *Festival, 
 
 // invalidateListCache invalidates the festival list cache
 func (s *CachedService) invalidateListCache(ctx context.Context) error {
-	pattern := s.keys.base(cache.PrefixFestival, "list", "*")
+	pattern := s.keys.FestivalPattern()
 
 	if s.invalidator != nil {
 		return s.invalidator.InvalidatePattern(ctx, pattern)
@@ -276,13 +276,6 @@ func (s *CachedService) invalidateListCache(ctx context.Context) error {
 	}
 
 	return s.cache.Delete(ctx, commonKeys...)
-}
-
-// base is a helper to access the key builder's base method
-func (k *cache.KeyBuilder) base(parts ...string) string {
-	// Use a key that we know will produce the right prefix
-	// This is a workaround since base is not exported
-	return cache.DefaultKeyBuilder.FestivalKey(uuid.Nil)[:len("festivals:v1")] + ":" + joinParts(parts...)
 }
 
 func joinParts(parts ...string) string {
