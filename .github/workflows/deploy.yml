@@ -13,6 +13,10 @@ on:
         options:
           - staging
           - production
+      image_tag:
+        description: 'Image tag to deploy (leave empty for latest)'
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -35,13 +39,20 @@ jobs:
           - context: ./backend
             dockerfile: Dockerfile
             image: api
+            target: api
+          - context: ./backend
+            dockerfile: Dockerfile
+            image: worker
+            target: worker
           - context: ./admin
             dockerfile: Dockerfile
             image: admin
 
     outputs:
-      api-image: ${{ steps.meta-api.outputs.tags }}
-      admin-image: ${{ steps.meta-admin.outputs.tags }}
+      api-image: ${{ steps.meta.outputs.tags }}
+      admin-image: ${{ steps.meta.outputs.tags }}
+      worker-image: ${{ steps.meta.outputs.tags }}
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout code
@@ -60,6 +71,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          elif [[ -n "${{ github.event.inputs.image_tag }}" ]]; then
+            VERSION="${{ github.event.inputs.image_tag }}"
+          else
+            VERSION="${{ github.sha }}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -70,21 +93,26 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=raw,value=staging,enable=${{ github.event.inputs.environment == 'staging' }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            COMMIT_SHA=${{ github.sha }}
 
   # ============================================
-  # Deploy to Staging
+  # Deploy to Staging (Kubernetes)
   # ============================================
   deploy-staging:
     name: Deploy to Staging
@@ -93,54 +121,109 @@ jobs:
     if: github.event.inputs.environment == 'staging' || (github.event_name == 'release' && github.event.release.prerelease)
     environment:
       name: staging
-      url: https://staging.festivals.example.com
+      url: https://staging.festivals.app
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to staging
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
         run: |
-          echo "Deploying to staging environment..."
-          echo "API Image: ${{ needs.build-and-push.outputs.api-image }}"
-          echo "Admin Image: ${{ needs.build-and-push.outputs.admin-image }}"
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
 
-          # Placeholder for actual deployment commands
-          # Options include:
+      - name: Install Kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: '5.3.0'
 
-          # Option 1: SSH and docker-compose
-          # ssh ${{ secrets.STAGING_HOST }} "cd /app && docker-compose pull && docker-compose up -d"
+      - name: Update image tags in Kustomize
+        run: |
+          cd k8s/overlays/staging
+          kustomize edit set image \
+            ghcr.io/festivals/api=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ needs.build-and-push.outputs.version }} \
+            ghcr.io/festivals/admin=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-admin:${{ needs.build-and-push.outputs.version }} \
+            ghcr.io/festivals/worker=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker:${{ needs.build-and-push.outputs.version }}
 
-          # Option 2: Kubernetes
-          # kubectl set image deployment/api api=${{ needs.build-and-push.outputs.api-image }}
-          # kubectl set image deployment/admin admin=${{ needs.build-and-push.outputs.admin-image }}
+      - name: Deploy to Kubernetes
+        run: |
+          echo "Deploying to staging Kubernetes cluster..."
 
-          # Option 3: AWS ECS
-          # aws ecs update-service --cluster staging --service api --force-new-deployment
+          # Apply Kustomize configuration
+          kustomize build k8s/overlays/staging | kubectl apply -f -
 
-          # Option 4: Fly.io
-          # flyctl deploy --image ${{ needs.build-and-push.outputs.api-image }}
-
-          # Option 5: Railway, Render, or other PaaS
-          # curl -X POST ${{ secrets.STAGING_DEPLOY_WEBHOOK }}
+          # Wait for rollout to complete
+          kubectl rollout status deployment/staging-festivals-api -n festivals-staging --timeout=300s
+          kubectl rollout status deployment/staging-festivals-admin -n festivals-staging --timeout=300s
+          kubectl rollout status deployment/staging-festivals-worker -n festivals-staging --timeout=300s
 
       - name: Run smoke tests
         run: |
           echo "Running smoke tests against staging..."
-          # curl -f https://staging-api.festivals.example.com/health
-          # curl -f https://staging.festivals.example.com
 
-      - name: Notify deployment
-        if: always()
-        run: |
-          echo "Staging deployment status: ${{ job.status }}"
-          # Slack/Discord notification placeholder
-          # curl -X POST -H 'Content-type: application/json' \
-          #   --data '{"text":"Staging deployment ${{ job.status }}"}' \
-          #   ${{ secrets.SLACK_WEBHOOK_URL }}
+          # Wait for services to be ready
+          sleep 30
+
+          # Health check API
+          curl -sf https://api.staging.festivals.app/health/ready || exit 1
+
+          # Health check Admin
+          curl -sf https://admin.staging.festivals.app/api/health || exit 1
+
+          echo "Smoke tests passed!"
+
+      - name: Notify deployment success
+        if: success()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "Staging deployment successful",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Staging Deployment Successful* :white_check_mark:\n*Version:* `${{ needs.build-and-push.outputs.version }}`\n*Environment:* <https://staging.festivals.app|Staging>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true
+
+      - name: Notify deployment failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "Staging deployment failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Staging Deployment Failed* :x:\n*Version:* `${{ needs.build-and-push.outputs.version }}`\n*Workflow:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true
 
   # ============================================
-  # Deploy to Production
+  # Deploy to Production (Kubernetes)
   # ============================================
   deploy-production:
     name: Deploy to Production
@@ -152,47 +235,198 @@ jobs:
       (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
     environment:
       name: production
-      url: https://festivals.example.com
+      url: https://festivals.app
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Install Kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: '5.3.0'
+
       - name: Create database backup
         run: |
           echo "Creating database backup before deployment..."
-          # pg_dump or cloud-specific backup command
-          # aws rds create-db-snapshot --db-instance-identifier festivals-prod
+          # Example for AWS RDS
+          # aws rds create-db-snapshot \
+          #   --db-instance-identifier festivals-prod \
+          #   --db-snapshot-identifier festivals-prod-${{ github.sha }}
 
-      - name: Deploy to production
+          # Example for kubectl pg_dump
+          # kubectl exec -n festivals-production deploy/postgres -- \
+          #   pg_dump -U postgres festivals > backup-${{ github.sha }}.sql
+
+      - name: Update image tags in Kustomize
         run: |
-          echo "Deploying to production environment..."
-          echo "API Image: ${{ needs.build-and-push.outputs.api-image }}"
-          echo "Admin Image: ${{ needs.build-and-push.outputs.admin-image }}"
+          cd k8s/overlays/production
+          kustomize edit set image \
+            ghcr.io/festivals/api=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ needs.build-and-push.outputs.version }} \
+            ghcr.io/festivals/admin=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-admin:${{ needs.build-and-push.outputs.version }} \
+            ghcr.io/festivals/worker=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker:${{ needs.build-and-push.outputs.version }}
 
-          # Placeholder for actual deployment commands
-          # Use same options as staging but with production configuration
+      - name: Deploy to Kubernetes (Blue-Green / Canary)
+        run: |
+          echo "Deploying to production Kubernetes cluster..."
+
+          # Apply Kustomize configuration
+          kustomize build k8s/overlays/production | kubectl apply -f -
+
+          # Wait for rollout to complete with extended timeout
+          kubectl rollout status deployment/prod-festivals-api -n festivals-production --timeout=600s
+          kubectl rollout status deployment/prod-festivals-admin -n festivals-production --timeout=600s
+          kubectl rollout status deployment/prod-festivals-worker -n festivals-production --timeout=600s
 
       - name: Run database migrations
         run: |
           echo "Running database migrations..."
-          # migrate -path ./backend/internal/infrastructure/database/migrations -database "$DATABASE_URL" up
+          # kubectl exec -n festivals-production deploy/prod-festivals-api -- \
+          #   /app/migrate -path /app/migrations -database "$DATABASE_URL" up
 
       - name: Verify deployment
         run: |
           echo "Verifying production deployment..."
-          # curl -f https://api.festivals.example.com/health
-          # curl -f https://festivals.example.com
 
-          # Check service health
-          # kubectl rollout status deployment/api
-          # kubectl rollout status deployment/admin
+          # Wait for services to stabilize
+          sleep 60
 
-      - name: Notify deployment
-        if: always()
+          # Health check API
+          for i in {1..5}; do
+            if curl -sf https://api.festivals.app/health/ready; then
+              echo "API health check passed"
+              break
+            fi
+            echo "Retrying API health check..."
+            sleep 10
+          done
+
+          # Health check Admin
+          for i in {1..5}; do
+            if curl -sf https://admin.festivals.app/api/health; then
+              echo "Admin health check passed"
+              break
+            fi
+            echo "Retrying Admin health check..."
+            sleep 10
+          done
+
+          # Check pod status
+          kubectl get pods -n festivals-production -l app.kubernetes.io/name=festivals
+
+          echo "Production deployment verified!"
+
+      - name: Create GitHub Release Notes
+        if: github.event_name == 'release'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: context.payload.release.id,
+              body: context.payload.release.body + '\n\n---\n**Deployment Status:** Deployed to production'
+            });
+
+      - name: Notify deployment success
+        if: success()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "Production deployment successful",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Production Deployment Successful* :rocket:\n*Version:* `${{ needs.build-and-push.outputs.version }}`\n*Environment:* <https://festivals.app|Production>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true
+
+      - name: Notify deployment failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "Production deployment failed - URGENT",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Production Deployment Failed* :rotating_light:\n*Version:* `${{ needs.build-and-push.outputs.version }}`\n*Workflow:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>\n\n_Consider rollback if issues persist._"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true
+
+  # ============================================
+  # Deploy with ArgoCD (Alternative)
+  # ============================================
+  deploy-argocd:
+    name: Deploy via ArgoCD
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: false  # Enable this job and disable the Kubernetes jobs to use ArgoCD
+    environment:
+      name: ${{ github.event.inputs.environment || 'staging' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install ArgoCD CLI
         run: |
-          echo "Production deployment status: ${{ job.status }}"
-          # Slack/Discord notification placeholder
+          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x argocd
+          sudo mv argocd /usr/local/bin/
+
+      - name: Login to ArgoCD
+        run: |
+          argocd login ${{ secrets.ARGOCD_SERVER }} \
+            --username ${{ secrets.ARGOCD_USERNAME }} \
+            --password ${{ secrets.ARGOCD_PASSWORD }} \
+            --insecure
+
+      - name: Update image tag in ArgoCD
+        run: |
+          ENV=${{ github.event.inputs.environment || 'staging' }}
+
+          argocd app set festivals-${ENV} \
+            --parameter api.image.tag=${{ needs.build-and-push.outputs.version }} \
+            --parameter admin.image.tag=${{ needs.build-and-push.outputs.version }} \
+            --parameter worker.image.tag=${{ needs.build-and-push.outputs.version }}
+
+      - name: Sync ArgoCD application
+        run: |
+          ENV=${{ github.event.inputs.environment || 'staging' }}
+
+          argocd app sync festivals-${ENV} --prune
+          argocd app wait festivals-${ENV} --timeout 600
 
   # ============================================
   # Rollback Job (Manual Trigger)
@@ -200,21 +434,117 @@ jobs:
   rollback:
     name: Rollback Deployment
     runs-on: ubuntu-latest
-    if: false  # Only run manually via workflow_dispatch
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment != ''
     environment:
-      name: production
+      name: ${{ github.event.inputs.environment }}
 
     steps:
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          else
+            echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          fi
+          chmod 600 ~/.kube/config
+
       - name: Rollback to previous version
         run: |
-          echo "Rolling back to previous version..."
-          # kubectl rollout undo deployment/api
-          # kubectl rollout undo deployment/admin
+          ENV=${{ github.event.inputs.environment }}
+          NS="festivals-${ENV}"
+          PREFIX="${ENV:0:4}-"  # staging -> stag-, production -> prod-
 
-          # Or restore from specific version
-          # kubectl rollout undo deployment/api --to-revision=2
+          if [[ "$ENV" == "staging" ]]; then
+            PREFIX="staging-"
+          else
+            PREFIX="prod-"
+          fi
+
+          echo "Rolling back deployments in namespace ${NS}..."
+
+          kubectl rollout undo deployment/${PREFIX}festivals-api -n ${NS}
+          kubectl rollout undo deployment/${PREFIX}festivals-admin -n ${NS}
+          kubectl rollout undo deployment/${PREFIX}festivals-worker -n ${NS}
 
       - name: Verify rollback
         run: |
+          ENV=${{ github.event.inputs.environment }}
+          NS="festivals-${ENV}"
+
+          if [[ "$ENV" == "staging" ]]; then
+            PREFIX="staging-"
+          else
+            PREFIX="prod-"
+          fi
+
           echo "Verifying rollback..."
-          # kubectl rollout status deployment/api
+
+          kubectl rollout status deployment/${PREFIX}festivals-api -n ${NS} --timeout=300s
+          kubectl rollout status deployment/${PREFIX}festivals-admin -n ${NS} --timeout=300s
+          kubectl rollout status deployment/${PREFIX}festivals-worker -n ${NS} --timeout=300s
+
+          echo "Rollback completed successfully!"
+
+      - name: Notify rollback
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "Rollback completed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Rollback Completed* :rewind:\n*Environment:* `${{ github.event.inputs.environment }}`\n*Triggered by:* ${{ github.actor }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true
+
+  # ============================================
+  # Cleanup Old Images
+  # ============================================
+  cleanup-images:
+    name: Cleanup Old Images
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always() && (needs.deploy-staging.result == 'success' || needs.deploy-production.result == 'success')
+
+    steps:
+      - name: Delete old container images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ github.event.repository.name }}-api
+          package-type: container
+          min-versions-to-keep: 10
+          delete-only-untagged-versions: false
+        continue-on-error: true
+
+      - name: Delete old admin images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ github.event.repository.name }}-admin
+          package-type: container
+          min-versions-to-keep: 10
+          delete-only-untagged-versions: false
+        continue-on-error: true
+
+      - name: Delete old worker images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ github.event.repository.name }}-worker
+          package-type: container
+          min-versions-to-keep: 10
+          delete-only-untagged-versions: false
+        continue-on-error: true

@@ -55,7 +55,17 @@ export default function StaffLayout() {
           ),
         }}
       />
-      {/* Hide the nested payment screens from tab bar */}
+      <Tabs.Screen
+        name="inventory"
+        options={{
+          title: 'Inventaire',
+          headerTitle: 'Inventaire',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="cube-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      {/* Hide the nested screens from tab bar */}
       <Tabs.Screen
         name="payment/scan"
         options={{
@@ -66,6 +76,13 @@ export default function StaffLayout() {
         name="payment/confirm"
         options={{
           href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="inventory/count"
+        options={{
+          href: null,
+          headerTitle: 'Comptage inventaire',
         }}
       />
     </Tabs>

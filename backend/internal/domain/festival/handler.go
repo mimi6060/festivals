@@ -33,11 +33,16 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 // Create creates a new festival
 // @Summary Create a new festival
+// @Description Create a new festival with the provided information
 // @Tags festivals
 // @Accept json
 // @Produce json
 // @Param request body CreateFestivalRequest true "Festival data"
-// @Success 201 {object} FestivalResponse
+// @Success 201 {object} response.Response{data=FestivalResponse} "Festival created successfully"
+// @Failure 400 {object} response.ErrorResponse "Invalid request body"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /festivals [post]
 func (h *Handler) Create(c *gin.Context) {
 	var req CreateFestivalRequest
@@ -65,11 +70,15 @@ func (h *Handler) Create(c *gin.Context) {
 
 // List returns a paginated list of festivals
 // @Summary List festivals
+// @Description Get a paginated list of all festivals
 // @Tags festivals
 // @Produce json
 // @Param page query int false "Page number" default(1)
 // @Param per_page query int false "Items per page" default(20)
-// @Success 200 {array} FestivalResponse
+// @Success 200 {object} response.Response{data=[]FestivalResponse,meta=response.Meta} "List of festivals"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /festivals [get]
 func (h *Handler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -96,10 +105,16 @@ func (h *Handler) List(c *gin.Context) {
 
 // GetByID returns a festival by ID
 // @Summary Get festival by ID
+// @Description Get detailed information about a specific festival
 // @Tags festivals
 // @Produce json
-// @Param id path string true "Festival ID"
-// @Success 200 {object} FestivalResponse
+// @Param id path string true "Festival ID" format(uuid)
+// @Success 200 {object} response.Response{data=FestivalResponse} "Festival details"
+// @Failure 400 {object} response.ErrorResponse "Invalid festival ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Festival not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /festivals/{id} [get]
 func (h *Handler) GetByID(c *gin.Context) {
 	idStr := c.Param("id")
@@ -124,12 +139,18 @@ func (h *Handler) GetByID(c *gin.Context) {
 
 // Update updates a festival
 // @Summary Update festival
+// @Description Update an existing festival with partial data
 // @Tags festivals
 // @Accept json
 // @Produce json
-// @Param id path string true "Festival ID"
+// @Param id path string true "Festival ID" format(uuid)
 // @Param request body UpdateFestivalRequest true "Update data"
-// @Success 200 {object} FestivalResponse
+// @Success 200 {object} response.Response{data=FestivalResponse} "Festival updated successfully"
+// @Failure 400 {object} response.ErrorResponse "Invalid request"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Festival not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /festivals/{id} [patch]
 func (h *Handler) Update(c *gin.Context) {
 	idStr := c.Param("id")
@@ -160,9 +181,15 @@ func (h *Handler) Update(c *gin.Context) {
 
 // Delete deletes a festival
 // @Summary Delete festival
+// @Description Permanently delete a festival and all associated data
 // @Tags festivals
-// @Param id path string true "Festival ID"
-// @Success 204
+// @Param id path string true "Festival ID" format(uuid)
+// @Success 204 "Festival deleted successfully"
+// @Failure 400 {object} response.ErrorResponse "Invalid festival ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Festival not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /festivals/{id} [delete]
 func (h *Handler) Delete(c *gin.Context) {
 	idStr := c.Param("id")
@@ -186,9 +213,16 @@ func (h *Handler) Delete(c *gin.Context) {
 
 // Activate activates a festival
 // @Summary Activate festival
+// @Description Change a festival status to active, allowing operations
 // @Tags festivals
-// @Param id path string true "Festival ID"
-// @Success 200 {object} FestivalResponse
+// @Produce json
+// @Param id path string true "Festival ID" format(uuid)
+// @Success 200 {object} response.Response{data=FestivalResponse} "Festival activated"
+// @Failure 400 {object} response.ErrorResponse "Invalid festival ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Festival not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /festivals/{id}/activate [post]
 func (h *Handler) Activate(c *gin.Context) {
 	idStr := c.Param("id")
@@ -213,9 +247,16 @@ func (h *Handler) Activate(c *gin.Context) {
 
 // Archive archives a festival
 // @Summary Archive festival
+// @Description Archive a festival, making it read-only
 // @Tags festivals
-// @Param id path string true "Festival ID"
-// @Success 200 {object} FestivalResponse
+// @Produce json
+// @Param id path string true "Festival ID" format(uuid)
+// @Success 200 {object} response.Response{data=FestivalResponse} "Festival archived"
+// @Failure 400 {object} response.ErrorResponse "Invalid festival ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Festival not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /festivals/{id}/archive [post]
 func (h *Handler) Archive(c *gin.Context) {
 	idStr := c.Param("id")

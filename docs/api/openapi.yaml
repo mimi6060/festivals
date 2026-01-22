@@ -1,0 +1,1302 @@
+openapi: 3.0.3
+info:
+  title: Festivals API
+  description: |
+    API for managing festivals, cashless payments, tickets, and more.
+
+    ## Overview
+    This API provides comprehensive endpoints for festival management including:
+    - **Festival Management**: Create, update, and manage festivals
+    - **Wallet Operations**: Handle cashless payment wallets
+    - **NFC Payments**: Process payments via NFC bracelets and tags
+    - **Ticket Scanning**: Validate and scan entry tickets
+    - **Refund Processing**: Handle refund requests
+    - **Analytics**: Access statistics and reports
+
+    ## Authentication
+    The API supports two authentication methods:
+    - **Bearer Token (JWT)**: For user and admin access
+    - **API Key**: For external integrations and webhooks
+
+    ## Rate Limiting
+    API requests are rate-limited based on your plan:
+    - Standard: 100 requests/minute
+    - Premium: 1000 requests/minute
+    - Enterprise: Custom limits
+
+    ## Webhooks
+    Configure webhooks to receive real-time notifications for events like:
+    - Payment processed
+    - Ticket scanned
+    - Refund status changed
+
+  termsOfService: https://festivals.io/terms
+  contact:
+    name: API Support
+    url: https://festivals.io/support
+    email: support@festivals.io
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Development server
+  - url: https://api.festivals.io/v1
+    description: Production server
+  - url: https://staging-api.festivals.io/v1
+    description: Staging server
+
+tags:
+  - name: festivals
+    description: Festival management operations
+  - name: wallets
+    description: Wallet and balance operations
+  - name: payments
+    description: Payment processing
+  - name: tickets
+    description: Ticket management and scanning
+  - name: ticket-types
+    description: Ticket type configuration
+  - name: products
+    description: Product catalog management
+  - name: stands
+    description: Stand/vendor management
+  - name: nfc
+    description: NFC tag and bracelet operations
+  - name: refunds
+    description: Refund request management
+  - name: sync
+    description: Offline transaction synchronization
+  - name: lineup
+    description: Artist lineup management
+  - name: stats
+    description: Statistics and analytics
+  - name: users
+    description: User management
+  - name: chat
+    description: Chatbot interactions
+  - name: map
+    description: Festival map and POIs
+  - name: api-keys
+    description: API key management
+  - name: webhooks
+    description: Webhook configuration
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags:
+        - system
+      summary: Health check
+      description: Check if the API is running and healthy
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  version:
+                    type: string
+                    example: 1.0.0
+
+  /festivals:
+    get:
+      tags:
+        - festivals
+      summary: List festivals
+      description: Get a paginated list of all festivals
+      operationId: listFestivals
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: List of festivals
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Festival'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags:
+        - festivals
+      summary: Create a new festival
+      description: Create a new festival with the provided information
+      operationId: createFestival
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFestivalRequest'
+            example:
+              name: Summer Music Festival 2024
+              description: Annual summer music event
+              startDate: '2024-07-15T10:00:00Z'
+              endDate: '2024-07-17T23:00:00Z'
+              location: Central Park, New York
+              currencyName: Jetons
+              exchangeRate: 0.10
+      responses:
+        '201':
+          description: Festival created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Festival'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /festivals/{id}:
+    get:
+      tags:
+        - festivals
+      summary: Get festival by ID
+      operationId: getFestival
+      parameters:
+        - $ref: '#/components/parameters/FestivalIdParam'
+      responses:
+        '200':
+          description: Festival details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Festival'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - festivals
+      summary: Update festival
+      operationId: updateFestival
+      parameters:
+        - $ref: '#/components/parameters/FestivalIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFestivalRequest'
+      responses:
+        '200':
+          description: Festival updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Festival'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - festivals
+      summary: Delete festival
+      operationId: deleteFestival
+      parameters:
+        - $ref: '#/components/parameters/FestivalIdParam'
+      responses:
+        '204':
+          description: Festival deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /festivals/{id}/activate:
+    post:
+      tags:
+        - festivals
+      summary: Activate festival
+      operationId: activateFestival
+      parameters:
+        - $ref: '#/components/parameters/FestivalIdParam'
+      responses:
+        '200':
+          description: Festival activated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Festival'
+
+  /festivals/{id}/archive:
+    post:
+      tags:
+        - festivals
+      summary: Archive festival
+      operationId: archiveFestival
+      parameters:
+        - $ref: '#/components/parameters/FestivalIdParam'
+      responses:
+        '200':
+          description: Festival archived
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Festival'
+
+  /me/wallets:
+    get:
+      tags:
+        - wallets
+      summary: Get user's wallets
+      description: Get all wallets belonging to the authenticated user
+      operationId: getMyWallets
+      responses:
+        '200':
+          description: List of wallets
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Wallet'
+
+  /me/wallets/{festivalId}:
+    get:
+      tags:
+        - wallets
+      summary: Get wallet for festival
+      operationId: getMyWalletForFestival
+      parameters:
+        - name: festivalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Wallet details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Wallet'
+
+    post:
+      tags:
+        - wallets
+      summary: Create wallet for festival
+      operationId: createMyWallet
+      parameters:
+        - name: festivalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '201':
+          description: Wallet created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Wallet'
+
+  /me/wallets/{festivalId}/qr:
+    get:
+      tags:
+        - wallets
+      summary: Generate QR code for wallet
+      operationId: generateWalletQR
+      parameters:
+        - name: festivalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: QR code payload
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/QRCodeResponse'
+
+  /me/wallets/{festivalId}/transactions:
+    get:
+      tags:
+        - wallets
+      summary: Get wallet transactions
+      operationId: getMyTransactions
+      parameters:
+        - name: festivalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Transaction list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Transaction'
+                      meta:
+                        $ref: '#/components/schemas/Meta'
+
+  /payments:
+    post:
+      tags:
+        - payments
+      summary: Process payment
+      description: Process a cashless payment at a stand
+      operationId: processPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+            example:
+              walletId: 123e4567-e89b-12d3-a456-426614174000
+              amount: 1500
+              standId: 123e4567-e89b-12d3-a456-426614174001
+              items:
+                - productId: 123e4567-e89b-12d3-a456-426614174002
+                  quantity: 2
+                  price: 750
+      responses:
+        '200':
+          description: Payment processed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Transaction'
+        '400':
+          description: Insufficient balance or invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: INSUFFICIENT_BALANCE
+                  message: Wallet has insufficient balance for this transaction
+
+  /payments/validate-qr:
+    post:
+      tags:
+        - payments
+      summary: Validate QR code
+      operationId: validateQR
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - qrCode
+              properties:
+                qrCode:
+                  type: string
+      responses:
+        '200':
+          description: Wallet info
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Wallet'
+
+  /nfc/activate:
+    post:
+      tags:
+        - nfc
+      summary: Activate NFC tag
+      description: Activate an NFC tag and link it to a wallet
+      operationId: activateNFCTag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NFCActivationRequest'
+      responses:
+        '201':
+          description: Tag activated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/NFCTag'
+
+  /nfc/{uid}:
+    get:
+      tags:
+        - nfc
+      summary: Get NFC tag
+      operationId: getNFCTag
+      parameters:
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tag details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/NFCTag'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /nfc/{uid}/validate:
+    post:
+      tags:
+        - nfc
+      summary: Validate NFC tag for payment
+      operationId: validateNFCTag
+      parameters:
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - amount
+              properties:
+                amount:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/NFCValidationResult'
+
+  /tickets:
+    get:
+      tags:
+        - tickets
+      summary: List tickets
+      operationId: listTickets
+      parameters:
+        - name: festivalId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: ticketTypeId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [valid, used, cancelled, expired]
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Ticket list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Ticket'
+                      meta:
+                        $ref: '#/components/schemas/Meta'
+
+    post:
+      tags:
+        - tickets
+      summary: Create ticket
+      operationId: createTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTicketRequest'
+      responses:
+        '201':
+          description: Ticket created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Ticket'
+
+  /tickets/scan:
+    post:
+      tags:
+        - tickets
+      summary: Scan/validate ticket
+      description: Validate a ticket for entry or exit
+      operationId: scanTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanTicketRequest'
+            example:
+              code: TKT-ABC123-XYZ789
+              scanType: entry
+      responses:
+        '200':
+          description: Scan result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ScanResponse'
+
+  /me/tickets:
+    get:
+      tags:
+        - tickets
+      summary: Get my tickets
+      operationId: getMyTickets
+      parameters:
+        - name: festivalId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: User's tickets
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Ticket'
+                      meta:
+                        $ref: '#/components/schemas/Meta'
+
+  /me/refunds:
+    get:
+      tags:
+        - refunds
+      summary: Get my refund requests
+      operationId: getMyRefunds
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Refund list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Refund'
+                      meta:
+                        $ref: '#/components/schemas/Meta'
+
+    post:
+      tags:
+        - refunds
+      summary: Request refund
+      operationId: requestRefund
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRefundRequest'
+      responses:
+        '201':
+          description: Refund request created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Refund'
+
+  /sync/batch:
+    post:
+      tags:
+        - sync
+      summary: Submit offline transaction batch
+      description: Submit a batch of offline transactions for synchronization
+      operationId: submitBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitBatchRequest'
+      responses:
+        '200':
+          description: Batch processed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SyncResult'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Authorization header using the Bearer scheme
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API Key for external integrations
+
+  parameters:
+    FestivalIdParam:
+      name: id
+      in: path
+      required: true
+      description: Festival ID
+      schema:
+        type: string
+        format: uuid
+
+    PageParam:
+      name: page
+      in: query
+      description: Page number
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+
+    PerPageParam:
+      name: per_page
+      in: query
+      description: Items per page
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Invalid request body
+              details: Name field is required
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: Invalid or expired token
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: NOT_FOUND
+              message: Resource not found
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: INTERNAL_ERROR
+              message: An unexpected error occurred
+
+  schemas:
+    Response:
+      type: object
+      properties:
+        data:
+          type: object
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    Meta:
+      type: object
+      properties:
+        total:
+          type: integer
+        page:
+          type: integer
+        per_page:
+          type: integer
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+
+    Festival:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        location:
+          type: string
+        status:
+          type: string
+          enum: [draft, active, archived]
+        currencyName:
+          type: string
+        exchangeRate:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateFestivalRequest:
+      type: object
+      required:
+        - name
+        - startDate
+        - endDate
+        - location
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        location:
+          type: string
+        timezone:
+          type: string
+          default: UTC
+        currencyName:
+          type: string
+          default: Jetons
+        exchangeRate:
+          type: number
+          default: 0.10
+
+    UpdateFestivalRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        location:
+          type: string
+
+    Wallet:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        festivalId:
+          type: string
+          format: uuid
+        balance:
+          type: integer
+          description: Balance in cents
+        status:
+          type: string
+          enum: [active, frozen]
+        createdAt:
+          type: string
+          format: date-time
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        walletId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [topup, payment, refund]
+        amount:
+          type: integer
+        balanceBefore:
+          type: integer
+        balanceAfter:
+          type: integer
+        standId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    QRCodeResponse:
+      type: object
+      properties:
+        qrCode:
+          type: string
+        balance:
+          type: integer
+        expiresAt:
+          type: string
+          format: date-time
+
+    PaymentRequest:
+      type: object
+      required:
+        - walletId
+        - amount
+        - standId
+      properties:
+        walletId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          minimum: 1
+        standId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentItem'
+
+    PaymentItem:
+      type: object
+      properties:
+        productId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+        price:
+          type: integer
+
+    NFCActivationRequest:
+      type: object
+      required:
+        - uid
+        - walletId
+      properties:
+        uid:
+          type: string
+        walletId:
+          type: string
+          format: uuid
+        initialBalance:
+          type: integer
+          default: 0
+
+    NFCTag:
+      type: object
+      properties:
+        uid:
+          type: string
+        walletId:
+          type: string
+          format: uuid
+        festivalId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [inactive, active, blocked]
+        activatedAt:
+          type: string
+          format: date-time
+        balance:
+          type: integer
+
+    NFCValidationResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        walletId:
+          type: string
+          format: uuid
+        balance:
+          type: integer
+        sufficientFunds:
+          type: boolean
+        message:
+          type: string
+
+    Ticket:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        ticketTypeId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [valid, used, cancelled, expired]
+        holderName:
+          type: string
+        holderEmail:
+          type: string
+        scannedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateTicketRequest:
+      type: object
+      required:
+        - ticketTypeId
+      properties:
+        ticketTypeId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        holderName:
+          type: string
+        holderEmail:
+          type: string
+          format: email
+
+    ScanTicketRequest:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+        scanType:
+          type: string
+          enum: [entry, exit]
+          default: entry
+
+    ScanResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        result:
+          type: string
+          enum: [valid, invalid, already_used, expired]
+        message:
+          type: string
+        ticket:
+          $ref: '#/components/schemas/Ticket'
+        scannedAt:
+          type: string
+          format: date-time
+
+    Refund:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        walletId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+        status:
+          type: string
+          enum: [pending, approved, processing, completed, rejected]
+        requestedAt:
+          type: string
+          format: date-time
+        processedAt:
+          type: string
+          format: date-time
+
+    CreateRefundRequest:
+      type: object
+      required:
+        - walletId
+      properties:
+        walletId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+        iban:
+          type: string
+        accountHolder:
+          type: string
+
+    SubmitBatchRequest:
+      type: object
+      required:
+        - transactions
+      properties:
+        deviceId:
+          type: string
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/OfflineTransaction'
+
+    OfflineTransaction:
+      type: object
+      required:
+        - localId
+        - walletId
+        - amount
+        - signature
+      properties:
+        localId:
+          type: string
+        walletId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+        standId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        signature:
+          type: string
+
+    SyncResult:
+      type: object
+      properties:
+        batchId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [success, partial, failed]
+        processed:
+          type: integer
+        failed:
+          type: integer
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncError'
+
+    SyncError:
+      type: object
+      properties:
+        localId:
+          type: string
+        code:
+          type: string
+        message:
+          type: string

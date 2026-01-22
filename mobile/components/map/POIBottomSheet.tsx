@@ -18,6 +18,7 @@ interface POIBottomSheetProps {
   poi: POI | null;
   onClose: () => void;
   userLocation?: { latitude: number; longitude: number } | null;
+  onGetDirections?: (poi: POI) => void;
 }
 
 export interface POIBottomSheetRef {
@@ -200,7 +201,7 @@ const FacilityDetails = ({ facility }: { facility: Facility }) => {
 };
 
 export const POIBottomSheet = forwardRef<POIBottomSheetRef, POIBottomSheetProps>(
-  ({ poi, onClose, userLocation }, ref) => {
+  ({ poi, onClose, userLocation, onGetDirections }, ref) => {
     const bottomSheetRef = useRef<BottomSheet>(null);
     const snapPoints = useMemo(() => ['35%', '70%'], []);
 
@@ -339,15 +340,33 @@ export const POIBottomSheet = forwardRef<POIBottomSheetRef, POIBottomSheetProps>
           {poi.poiType === 'stage' && <StageDetails stage={poi as MapStage} />}
           {poi.poiType === 'facility' && <FacilityDetails facility={poi as Facility} />}
 
-          {/* Navigate Button */}
-          <TouchableOpacity
-            style={[styles.navigateButton, { backgroundColor: getColor() }]}
-            onPress={handleNavigate}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="navigate" size={20} color="white" />
-            <Text style={styles.navigateButtonText}>Itineraire</Text>
-          </TouchableOpacity>
+          {/* Action Buttons */}
+          <View style={styles.buttonRow}>
+            {/* Navigate Button (opens external maps) */}
+            <TouchableOpacity
+              style={[styles.navigateButton, styles.secondaryButton]}
+              onPress={handleNavigate}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="map-outline" size={20} color="#6366F1" />
+              <Text style={styles.secondaryButtonText}>Plans</Text>
+            </TouchableOpacity>
+
+            {/* In-app Directions Button */}
+            <TouchableOpacity
+              style={[styles.navigateButton, { backgroundColor: getColor(), flex: 2 }]}
+              onPress={() => {
+                if (poi && onGetDirections) {
+                  onGetDirections(poi);
+                  onClose();
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="navigate" size={20} color="white" />
+              <Text style={styles.navigateButtonText}>Itineraire</Text>
+            </TouchableOpacity>
+          </View>
         </BottomSheetScrollView>
       </BottomSheet>
     );
@@ -542,19 +561,34 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 12,
   },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 24,
+  },
   navigateButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
     borderRadius: 12,
-    marginTop: 24,
+    gap: 8,
+  },
+  secondaryButton: {
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#6366F1',
   },
   navigateButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: 'white',
-    marginLeft: 8,
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6366F1',
   },
 });
 

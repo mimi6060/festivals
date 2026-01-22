@@ -295,6 +295,20 @@ export default function NFCTagsListPage() {
         </div>
         <div className="flex gap-2">
           <Link
+            href={`/festivals/${festivalId}/nfc/batches`}
+            className="inline-flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <CreditCard className="h-4 w-4" />
+            Lots
+          </Link>
+          <Link
+            href={`/festivals/${festivalId}/nfc/activate`}
+            className="inline-flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <Plus className="h-4 w-4" />
+            Activation masse
+          </Link>
+          <Link
             href={`/festivals/${festivalId}/nfc/import`}
             className="inline-flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >

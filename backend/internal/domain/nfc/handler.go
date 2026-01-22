@@ -35,12 +35,36 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		nfc.GET("/:uid/offline-token", h.GenerateOfflineToken)
 	}
 
+	// NFC bracelet management routes
+	bracelets := r.Group("/nfc/bracelets")
+	{
+		bracelets.POST("/activate", h.ActivateBracelet)
+		bracelets.GET("/:uid", h.GetBraceletInfo)
+		bracelets.POST("/:uid/deactivate", h.DeactivateBracelet)
+		bracelets.POST("/:uid/block", h.BlockBracelet)
+		bracelets.POST("/:uid/lost", h.ReportBraceletLost)
+		bracelets.GET("/:uid/transactions", h.GetBraceletTransactions)
+		bracelets.POST("/payment", h.ProcessNFCPayment)
+		bracelets.POST("/transfer-balance", h.TransferBraceletBalance)
+	}
+
 	// Festival-scoped NFC routes
 	festivals := r.Group("/festivals")
 	{
 		festivals.GET("/:id/nfc/tags", h.ListFestivalTags)
 		festivals.GET("/:id/nfc/tags/active", h.GetActiveTags)
 		festivals.POST("/:id/nfc/bulk-register", h.BulkRegisterTags)
+
+		// Bracelet routes
+		festivals.GET("/:id/nfc/bracelets", h.ListFestivalBracelets)
+		festivals.POST("/:id/nfc/bracelets/batch-activate", h.BatchActivateBracelets)
+		festivals.GET("/:id/nfc/stats", h.GetNFCStats)
+
+		// Batch routes
+		festivals.GET("/:id/nfc/batches", h.ListBatches)
+		festivals.POST("/:id/nfc/batches", h.CreateBatch)
+		festivals.GET("/:id/nfc/batches/:batchId", h.GetBatch)
+		festivals.POST("/:id/nfc/batches/:batchId/activate", h.ActivateBatch)
 	}
 
 	// Offline transaction sync routes
@@ -381,6 +405,392 @@ func (h *Handler) SyncOfflineTransaction(c *gin.Context) {
 			"message": "Transaction queued for processing",
 		},
 	})
+}
+
+// ActivateBracelet activates a bracelet and links it to a wallet
+// POST /nfc/bracelets/activate
+func (h *Handler) ActivateBracelet(c *gin.Context) {
+	var req NFCBraceletActivationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "VALIDATION_ERROR", "Invalid request body", err.Error())
+		return
+	}
+
+	staffID := getStaffID(c)
+
+	bracelet, err := h.service.ActivateBracelet(c.Request.Context(), req.UID, req.UserID, req.WalletID, staffID)
+	if err != nil {
+		if err == errors.ErrWalletNotFound {
+			response.NotFound(c, "Wallet not found")
+			return
+		}
+		response.BadRequest(c, "ACTIVATION_FAILED", err.Error(), nil)
+		return
+	}
+
+	response.Created(c, bracelet.ToResponse())
+}
+
+// DeactivateBracelet deactivates a bracelet
+// POST /nfc/bracelets/:uid/deactivate
+func (h *Handler) DeactivateBracelet(c *gin.Context) {
+	uid := c.Param("uid")
+	if uid == "" {
+		response.BadRequest(c, "INVALID_UID", "Bracelet UID is required", nil)
+		return
+	}
+
+	bracelet, err := h.service.DeactivateBracelet(c.Request.Context(), uid)
+	if err != nil {
+		if err == errors.ErrNotFound {
+			response.NotFound(c, "Bracelet not found")
+			return
+		}
+		response.BadRequest(c, "DEACTIVATION_FAILED", err.Error(), nil)
+		return
+	}
+
+	response.OK(c, bracelet.ToResponse())
+}
+
+// GetBraceletInfo retrieves detailed information about a bracelet
+// GET /nfc/bracelets/:uid
+func (h *Handler) GetBraceletInfo(c *gin.Context) {
+	uid := c.Param("uid")
+	if uid == "" {
+		response.BadRequest(c, "INVALID_UID", "Bracelet UID is required", nil)
+		return
+	}
+
+	info, err := h.service.GetBraceletInfo(c.Request.Context(), uid)
+	if err != nil {
+		if err == errors.ErrNotFound {
+			response.NotFound(c, "Bracelet not found")
+			return
+		}
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, info)
+}
+
+// ProcessNFCPayment processes a payment using an NFC bracelet
+// POST /nfc/bracelets/payment
+func (h *Handler) ProcessNFCPayment(c *gin.Context) {
+	var req NFCPaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "VALIDATION_ERROR", "Invalid request body", err.Error())
+		return
+	}
+
+	staffID := getStaffID(c)
+	deviceID := c.GetHeader("X-Device-ID")
+	if deviceID == "" {
+		deviceID = "unknown"
+	}
+
+	result, err := h.service.ProcessNFCPayment(c.Request.Context(), req.UID, req.Amount, req.StandID, staffID, deviceID)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	if !result.Success {
+		response.BadRequest(c, "PAYMENT_FAILED", result.Message, nil)
+		return
+	}
+
+	response.OK(c, result)
+}
+
+// BlockBracelet blocks a bracelet
+// POST /nfc/bracelets/:uid/block
+func (h *Handler) BlockBracelet(c *gin.Context) {
+	uid := c.Param("uid")
+	if uid == "" {
+		response.BadRequest(c, "INVALID_UID", "Bracelet UID is required", nil)
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "VALIDATION_ERROR", "Invalid request body", err.Error())
+		return
+	}
+
+	bracelet, err := h.service.BlockBracelet(c.Request.Context(), uid, req.Reason)
+	if err != nil {
+		if err == errors.ErrNotFound {
+			response.NotFound(c, "Bracelet not found")
+			return
+		}
+		response.BadRequest(c, "BLOCK_FAILED", err.Error(), nil)
+		return
+	}
+
+	response.OK(c, bracelet.ToResponse())
+}
+
+// ReportBraceletLost reports a bracelet as lost
+// POST /nfc/bracelets/:uid/lost
+func (h *Handler) ReportBraceletLost(c *gin.Context) {
+	uid := c.Param("uid")
+	if uid == "" {
+		response.BadRequest(c, "INVALID_UID", "Bracelet UID is required", nil)
+		return
+	}
+
+	bracelet, err := h.service.ReportLost(c.Request.Context(), uid)
+	if err != nil {
+		if err == errors.ErrNotFound {
+			response.NotFound(c, "Bracelet not found")
+			return
+		}
+		response.BadRequest(c, "REPORT_FAILED", err.Error(), nil)
+		return
+	}
+
+	response.OK(c, bracelet.ToResponse())
+}
+
+// GetBraceletTransactions retrieves transactions for a bracelet
+// GET /nfc/bracelets/:uid/transactions
+func (h *Handler) GetBraceletTransactions(c *gin.Context) {
+	uid := c.Param("uid")
+	if uid == "" {
+		response.BadRequest(c, "INVALID_UID", "Bracelet UID is required", nil)
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+
+	transactions, total, err := h.service.GetBraceletTransactions(c.Request.Context(), uid, page, perPage)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OKWithMeta(c, transactions, &response.Meta{
+		Total:   int(total),
+		Page:    page,
+		PerPage: perPage,
+	})
+}
+
+// TransferBraceletBalance transfers balance from one bracelet to another
+// POST /nfc/bracelets/transfer-balance
+func (h *Handler) TransferBraceletBalance(c *gin.Context) {
+	var req NFCTransferBalanceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "VALIDATION_ERROR", "Invalid request body", err.Error())
+		return
+	}
+
+	result, err := h.service.TransferBalance(c.Request.Context(), req.FromUID, req.ToUID)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	if !result.Success {
+		response.BadRequest(c, "TRANSFER_FAILED", result.Message, nil)
+		return
+	}
+
+	response.OK(c, result)
+}
+
+// ListFestivalBracelets lists all bracelets for a festival
+// GET /festivals/:id/nfc/bracelets
+func (h *Handler) ListFestivalBracelets(c *gin.Context) {
+	festivalID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "INVALID_ID", "Invalid festival ID", nil)
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+
+	bracelets, total, err := h.service.ListBracelets(c.Request.Context(), festivalID, page, perPage)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	items := make([]NFCBraceletResponse, len(bracelets))
+	for i, bracelet := range bracelets {
+		items[i] = bracelet.ToResponse()
+	}
+
+	response.OKWithMeta(c, items, &response.Meta{
+		Total:   int(total),
+		Page:    page,
+		PerPage: perPage,
+	})
+}
+
+// BatchActivateBracelets activates multiple bracelets
+// POST /festivals/:id/nfc/bracelets/batch-activate
+func (h *Handler) BatchActivateBracelets(c *gin.Context) {
+	festivalID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "INVALID_ID", "Invalid festival ID", nil)
+		return
+	}
+
+	var req struct {
+		UIDs []string `json:"uids" binding:"required,min=1"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "VALIDATION_ERROR", "Invalid request body", err.Error())
+		return
+	}
+
+	staffID := getStaffID(c)
+	if staffID == nil {
+		response.Unauthorized(c, "Staff ID required")
+		return
+	}
+
+	bracelets, err := h.service.BatchActivate(c.Request.Context(), req.UIDs, festivalID, *staffID)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	items := make([]NFCBraceletResponse, len(bracelets))
+	for i, bracelet := range bracelets {
+		items[i] = bracelet.ToResponse()
+	}
+
+	response.Created(c, items)
+}
+
+// GetNFCStats retrieves NFC statistics for a festival
+// GET /festivals/:id/nfc/stats
+func (h *Handler) GetNFCStats(c *gin.Context) {
+	festivalID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "INVALID_ID", "Invalid festival ID", nil)
+		return
+	}
+
+	stats, err := h.service.GetNFCStats(c.Request.Context(), festivalID)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, stats)
+}
+
+// CreateBatch creates a new batch of bracelets
+// POST /festivals/:id/nfc/batches
+func (h *Handler) CreateBatch(c *gin.Context) {
+	festivalID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "INVALID_ID", "Invalid festival ID", nil)
+		return
+	}
+
+	var req NFCBatchCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "VALIDATION_ERROR", "Invalid request body", err.Error())
+		return
+	}
+
+	staffID := getStaffID(c)
+	if staffID == nil {
+		response.Unauthorized(c, "Staff ID required")
+		return
+	}
+
+	batch, err := h.service.CreateBatch(c.Request.Context(), festivalID, req, *staffID)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.Created(c, batch.ToResponse())
+}
+
+// ListBatches lists all batches for a festival
+// GET /festivals/:id/nfc/batches
+func (h *Handler) ListBatches(c *gin.Context) {
+	festivalID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "INVALID_ID", "Invalid festival ID", nil)
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+
+	batches, total, err := h.service.ListBatches(c.Request.Context(), festivalID, page, perPage)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	items := make([]NFCBatchResponse, len(batches))
+	for i, batch := range batches {
+		items[i] = batch.ToResponse()
+	}
+
+	response.OKWithMeta(c, items, &response.Meta{
+		Total:   int(total),
+		Page:    page,
+		PerPage: perPage,
+	})
+}
+
+// GetBatch retrieves a batch by ID
+// GET /festivals/:id/nfc/batches/:batchId
+func (h *Handler) GetBatch(c *gin.Context) {
+	batchID, err := uuid.Parse(c.Param("batchId"))
+	if err != nil {
+		response.BadRequest(c, "INVALID_ID", "Invalid batch ID", nil)
+		return
+	}
+
+	batch, err := h.service.GetBatch(c.Request.Context(), batchID)
+	if err != nil {
+		if err == errors.ErrNotFound {
+			response.NotFound(c, "Batch not found")
+			return
+		}
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, batch.ToResponse())
+}
+
+// ActivateBatch activates a batch
+// POST /festivals/:id/nfc/batches/:batchId/activate
+func (h *Handler) ActivateBatch(c *gin.Context) {
+	batchID, err := uuid.Parse(c.Param("batchId"))
+	if err != nil {
+		response.BadRequest(c, "INVALID_ID", "Invalid batch ID", nil)
+		return
+	}
+
+	batch, err := h.service.ActivateBatch(c.Request.Context(), batchID)
+	if err != nil {
+		if err == errors.ErrNotFound {
+			response.NotFound(c, "Batch not found")
+			return
+		}
+		response.BadRequest(c, "ACTIVATION_FAILED", err.Error(), nil)
+		return
+	}
+
+	response.OK(c, batch.ToResponse())
 }
 
 // Helper functions

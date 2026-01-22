@@ -6,6 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"festivals/internal/domain/auth"
 )
 
 // AccessChecker is an interface for checking resource access
@@ -544,4 +546,386 @@ func RequireMinimumRole(minimumRole string) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// ============================================================================
+// RBAC-based Middleware
+// ============================================================================
+
+// RBACConfig holds configuration for RBAC middleware
+type RBACConfig struct {
+	RBACService auth.RBACService
+}
+
+// Context keys for RBAC
+const (
+	ContextKeyRBACPermissions = "rbac_permissions"
+	ContextKeyRBACRoles       = "rbac_roles"
+)
+
+// RequireRBACPermission middleware checks if the user has a specific RBAC permission
+// This uses the database-backed RBAC system for granular permission checks
+func RequireRBACPermission(rbacService auth.RBACService, resource auth.Resource, action auth.Action) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		// Get festival ID from context or URL params
+		festivalID := getFestivalIDFromContext(c)
+
+		// Check permission
+		if !rbacService.HasPermission(c.Request.Context(), userUUID, resource, action, festivalID) {
+			respondForbidden(c, "Permission denied: "+string(resource)+":"+string(action))
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequireRBACPermissionWithStand middleware checks permission with stand scope
+func RequireRBACPermissionWithStand(rbacService auth.RBACService, resource auth.Resource, action auth.Action) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+		standID := getStandIDFromContext(c)
+
+		// Check permission with stand scope
+		if !rbacService.HasPermissionWithStand(c.Request.Context(), userUUID, resource, action, festivalID, standID) {
+			respondForbidden(c, "Permission denied: "+string(resource)+":"+string(action))
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequireAnyRBACPermission middleware checks if user has any of the specified permissions
+func RequireAnyRBACPermission(rbacService auth.RBACService, permissions ...struct {
+	Resource auth.Resource
+	Action   auth.Action
+}) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		for _, perm := range permissions {
+			if rbacService.HasPermission(c.Request.Context(), userUUID, perm.Resource, perm.Action, festivalID) {
+				c.Next()
+				return
+			}
+		}
+
+		respondForbidden(c, "Insufficient permissions")
+	}
+}
+
+// RequireAllRBACPermissions middleware checks if user has all specified permissions
+func RequireAllRBACPermissions(rbacService auth.RBACService, permissions ...struct {
+	Resource auth.Resource
+	Action   auth.Action
+}) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		for _, perm := range permissions {
+			if !rbacService.HasPermission(c.Request.Context(), userUUID, perm.Resource, perm.Action, festivalID) {
+				respondForbidden(c, "Permission denied: "+string(perm.Resource)+":"+string(perm.Action))
+				return
+			}
+		}
+
+		c.Next()
+	}
+}
+
+// RequireRBACRole middleware checks if user has specific RBAC role
+func RequireRBACRole(rbacService auth.RBACService, roleName auth.PredefinedRoleName) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		roles, err := rbacService.GetUserRoles(c.Request.Context(), userUUID, festivalID)
+		if err != nil {
+			respondInternalError(c, "Failed to get user roles")
+			return
+		}
+
+		for _, role := range roles {
+			if role.Name == string(roleName) {
+				c.Next()
+				return
+			}
+		}
+
+		respondForbidden(c, "Required role: "+string(roleName))
+	}
+}
+
+// RequireSuperAdmin middleware ensures user is a super admin
+func RequireSuperAdmin(rbacService auth.RBACService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		if !rbacService.IsSuperAdmin(c.Request.Context(), userUUID) {
+			respondForbidden(c, "Super admin access required")
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequireFestivalOwner middleware ensures user is festival owner or super admin
+func RequireFestivalOwner(rbacService auth.RBACService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+		if festivalID == nil {
+			respondForbidden(c, "Festival ID required")
+			return
+		}
+
+		if !rbacService.IsFestivalOwner(c.Request.Context(), userUUID, *festivalID) {
+			respondForbidden(c, "Festival owner access required")
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequireFestivalAdmin middleware ensures user is festival admin, owner, or super admin
+func RequireFestivalAdmin(rbacService auth.RBACService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+		if festivalID == nil {
+			respondForbidden(c, "Festival ID required")
+			return
+		}
+
+		if !rbacService.IsFestivalAdmin(c.Request.Context(), userUUID, *festivalID) {
+			respondForbidden(c, "Festival admin access required")
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// LoadUserRBACPermissions middleware loads RBAC permissions into context
+// This can be used to preload permissions for efficiency
+func LoadUserRBACPermissions(rbacService auth.RBACService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			c.Next()
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			c.Next()
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		// Load user permissions
+		permissions, err := rbacService.GetUserPermissions(c.Request.Context(), userUUID, festivalID)
+		if err == nil && permissions != nil {
+			c.Set(ContextKeyRBACPermissions, permissions)
+		}
+
+		// Load user roles
+		roles, err := rbacService.GetUserRoles(c.Request.Context(), userUUID, festivalID)
+		if err == nil {
+			c.Set(ContextKeyRBACRoles, roles)
+		}
+
+		c.Next()
+	}
+}
+
+// Helper functions for RBAC middleware
+
+func getFestivalIDFromContext(c *gin.Context) *uuid.UUID {
+	// Try URL params first
+	festivalIDStr := c.Param("festivalId")
+	if festivalIDStr == "" {
+		festivalIDStr = c.Param("festival_id")
+	}
+	if festivalIDStr == "" {
+		festivalIDStr = c.GetString("festival_id")
+	}
+
+	if festivalIDStr == "" {
+		return nil
+	}
+
+	festivalID, err := uuid.Parse(festivalIDStr)
+	if err != nil {
+		return nil
+	}
+
+	return &festivalID
+}
+
+func getStandIDFromContext(c *gin.Context) *uuid.UUID {
+	standIDStr := c.Param("standId")
+	if standIDStr == "" {
+		standIDStr = c.Param("stand_id")
+	}
+	if standIDStr == "" {
+		standIDStr = c.GetString("stand_id")
+	}
+
+	if standIDStr == "" {
+		return nil
+	}
+
+	standID, err := uuid.Parse(standIDStr)
+	if err != nil {
+		return nil
+	}
+
+	return &standID
+}
+
+// GetRBACPermissions extracts RBAC permissions from context
+func GetRBACPermissions(c *gin.Context) *auth.UserPermissionsResponse {
+	if perms, exists := c.Get(ContextKeyRBACPermissions); exists {
+		if p, ok := perms.(*auth.UserPermissionsResponse); ok {
+			return p
+		}
+	}
+	return nil
+}
+
+// GetRBACRoles extracts RBAC roles from context
+func GetRBACRoles(c *gin.Context) []auth.Role {
+	if roles, exists := c.Get(ContextKeyRBACRoles); exists {
+		if r, ok := roles.([]auth.Role); ok {
+			return r
+		}
+	}
+	return nil
+}
+
+// HasRBACPermissionFromContext checks permission from preloaded context
+func HasRBACPermissionFromContext(c *gin.Context, resource auth.Resource, action auth.Action) bool {
+	perms := GetRBACPermissions(c)
+	if perms == nil {
+		return false
+	}
+
+	permKey := string(resource) + ":" + string(action)
+	for _, p := range perms.Permissions {
+		if string(p.Resource)+":"+string(p.Action) == permKey {
+			return true
+		}
+	}
+	return false
+}
+
+// HasRBACRoleFromContext checks role from preloaded context
+func HasRBACRoleFromContext(c *gin.Context, roleName string) bool {
+	roles := GetRBACRoles(c)
+	if roles == nil {
+		return false
+	}
+
+	for _, r := range roles {
+		if r.Name == roleName {
+			return true
+		}
+	}
+	return false
 }

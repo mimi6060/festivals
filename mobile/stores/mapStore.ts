@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_URL } from '@/config/api';
 
 // Types
 export type POICategory =
@@ -15,7 +16,15 @@ export type POICategory =
   | 'parking'
   | 'entrance'
   | 'atm'
-  | 'charging';
+  | 'charging'
+  | 'camping'
+  | 'vip'
+  | 'security'
+  | 'water'
+  | 'smoking'
+  | 'lockers'
+  | 'lost_found'
+  | 'accessibility';
 
 export type StandCategory =
   | 'food'
@@ -345,31 +354,89 @@ const mockFacilities: Facility[] = [
   },
 ];
 
+// Map configuration from API
+export interface MapConfig {
+  id: string;
+  festivalId: string;
+  centerLat: number;
+  centerLng: number;
+  defaultZoom: number;
+  minZoom: number;
+  maxZoom: number;
+  bounds?: {
+    northLat: number;
+    southLat: number;
+    eastLng: number;
+    westLng: number;
+  };
+  styleUrl: string;
+  settings: {
+    showTraffic?: boolean;
+    show3dBuildings?: boolean;
+    enableClustering?: boolean;
+    clusterRadius?: number;
+  };
+}
+
+// Zone type from API
+export interface MapZone {
+  id: string;
+  festivalId: string;
+  name: string;
+  description: string;
+  type: string;
+  color: string;
+  fillColor: string;
+  fillOpacity: number;
+  borderColor: string;
+  borderWidth: number;
+  coordinates: Coordinate[];
+  centerLat: number;
+  centerLng: number;
+  capacity?: number;
+  isRestricted: boolean;
+  requiresPass: boolean;
+  isVisible: boolean;
+}
+
 interface MapState {
   // Data
   stands: Stand[];
   stages: MapStage[];
   facilities: Facility[];
+  mapConfig: MapConfig | null;
+  zones: MapZone[];
 
   // User state
   userLocation: UserLocation | null;
   selectedPOI: POI | null;
   filterCategory: POICategory | null;
   searchQuery: string;
+  activeFilters: POICategory[];
 
   // UI state
   isLoading: boolean;
   error: string | null;
   showUserLocation: boolean;
+  showZones: boolean;
+  mapReady: boolean;
 
   // Actions
   fetchMapData: (festivalId: string) => Promise<void>;
+  fetchMapConfig: (festivalId: string) => Promise<void>;
+  fetchPOIs: (festivalId: string) => Promise<void>;
+  fetchZones: (festivalId: string) => Promise<void>;
   setUserLocation: (location: UserLocation | null) => void;
   selectPOI: (poi: POI | null) => void;
   setFilterCategory: (category: POICategory | null) => void;
+  toggleFilter: (category: POICategory) => void;
+  clearFilters: () => void;
   setSearchQuery: (query: string) => void;
   toggleUserLocation: () => void;
+  toggleZones: () => void;
+  setMapReady: (ready: boolean) => void;
   clearError: () => void;
+  refreshData: (festivalId: string) => Promise<void>;
 
   // Selectors
   getStandById: (id: string) => Stand | undefined;
@@ -378,7 +445,25 @@ interface MapState {
   getFilteredStands: () => Stand[];
   getFilteredFacilities: () => Facility[];
   getAllPOIs: () => POI[];
+  getVisiblePOIs: () => POI[];
   searchPOIs: (query: string) => POI[];
+  getNearbyPOIs: (lat: number, lng: number, radiusMeters: number) => POI[];
+}
+
+// Helper to calculate distance between two coordinates in meters
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3; // Earth's radius in meters
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
 }
 
 export const useMapStore = create<MapState>()(
@@ -388,41 +473,131 @@ export const useMapStore = create<MapState>()(
       stands: mockStands,
       stages: mockStages,
       facilities: mockFacilities,
+      mapConfig: null,
+      zones: [],
 
       // Initial user state
       userLocation: null,
       selectedPOI: null,
       filterCategory: null,
       searchQuery: '',
+      activeFilters: [],
 
       // Initial UI state
       isLoading: false,
       error: null,
       showUserLocation: true,
+      showZones: true,
+      mapReady: false,
 
       // Actions
       fetchMapData: async (festivalId: string) => {
         set({ isLoading: true, error: null });
         try {
-          // In production, this would fetch from API
-          // const response = await fetch(`/api/festivals/${festivalId}/map`);
-          // const data = await response.json();
+          // Try to fetch from API first
+          const response = await fetch(`${API_URL}/festivals/${festivalId}/map`);
 
-          // Simulate network delay
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          if (response.ok) {
+            const data = await response.json();
 
-          // For now, we use mock data (already set in initial state)
-          set({
-            isLoading: false,
-            // stands: data.stands,
-            // stages: data.stages,
-            // facilities: data.facilities,
-          });
+            // Transform API POIs to local format
+            const apiStands: Stand[] = [];
+            const apiStages: MapStage[] = [];
+            const apiFacilities: Facility[] = [];
+
+            if (data.pois) {
+              data.pois.forEach((poi: any) => {
+                const location = { latitude: poi.latitude, longitude: poi.longitude };
+
+                if (poi.standId || ['BAR', 'FOOD', 'MERCH'].includes(poi.type)) {
+                  apiStands.push({
+                    id: poi.id,
+                    name: poi.name,
+                    description: poi.description || '',
+                    category: poi.type.toLowerCase() as StandCategory,
+                    location,
+                    products: [],
+                    openingHours: poi.openingHours || '',
+                    isCashless: true,
+                    imageUrl: poi.imageUrl,
+                  });
+                } else if (poi.stageId || poi.type === 'STAGE') {
+                  apiStages.push({
+                    id: poi.id,
+                    name: poi.name,
+                    description: poi.description || '',
+                    location,
+                    capacity: poi.capacity || 0,
+                    color: poi.color || '#8B5CF6',
+                  });
+                } else {
+                  apiFacilities.push({
+                    id: poi.id,
+                    name: poi.name,
+                    type: poi.type.toLowerCase() as POICategory,
+                    location,
+                    description: poi.description,
+                    isAccessible: poi.isAccessible,
+                    status: poi.status?.toLowerCase() as 'open' | 'closed' | 'busy' | undefined,
+                  });
+                }
+              });
+            }
+
+            set({
+              isLoading: false,
+              mapConfig: data.config || null,
+              zones: data.zones || [],
+              stands: apiStands.length > 0 ? apiStands : mockStands,
+              stages: apiStages.length > 0 ? apiStages : mockStages,
+              facilities: apiFacilities.length > 0 ? apiFacilities : mockFacilities,
+            });
+          } else {
+            // Fallback to mock data
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            set({ isLoading: false });
+          }
         } catch (error) {
-          set({
-            isLoading: false,
-            error: error instanceof Error ? error.message : 'Erreur lors du chargement de la carte',
-          });
+          // Fallback to mock data on error
+          console.warn('Using mock data:', error);
+          set({ isLoading: false });
+        }
+      },
+
+      fetchMapConfig: async (festivalId: string) => {
+        try {
+          const response = await fetch(`${API_URL}/festivals/${festivalId}/map/config`);
+          if (response.ok) {
+            const config = await response.json();
+            set({ mapConfig: config });
+          }
+        } catch (error) {
+          console.error('Failed to fetch map config:', error);
+        }
+      },
+
+      fetchPOIs: async (festivalId: string) => {
+        try {
+          const response = await fetch(`${API_URL}/festivals/${festivalId}/map/pois`);
+          if (response.ok) {
+            const pois = await response.json();
+            // Transform and update stores
+            console.log('Fetched POIs:', pois);
+          }
+        } catch (error) {
+          console.error('Failed to fetch POIs:', error);
+        }
+      },
+
+      fetchZones: async (festivalId: string) => {
+        try {
+          const response = await fetch(`${API_URL}/festivals/${festivalId}/map/zones`);
+          if (response.ok) {
+            const zones = await response.json();
+            set({ zones });
+          }
+        } catch (error) {
+          console.error('Failed to fetch zones:', error);
         }
       },
 
@@ -438,6 +613,19 @@ export const useMapStore = create<MapState>()(
         set({ filterCategory: category });
       },
 
+      toggleFilter: (category) => {
+        set((state) => {
+          const filters = state.activeFilters.includes(category)
+            ? state.activeFilters.filter((f) => f !== category)
+            : [...state.activeFilters, category];
+          return { activeFilters: filters };
+        });
+      },
+
+      clearFilters: () => {
+        set({ activeFilters: [], filterCategory: null });
+      },
+
       setSearchQuery: (query) => {
         set({ searchQuery: query });
       },
@@ -446,8 +634,21 @@ export const useMapStore = create<MapState>()(
         set((state) => ({ showUserLocation: !state.showUserLocation }));
       },
 
+      toggleZones: () => {
+        set((state) => ({ showZones: !state.showZones }));
+      },
+
+      setMapReady: (ready) => {
+        set({ mapReady: ready });
+      },
+
       clearError: () => {
         set({ error: null });
+      },
+
+      refreshData: async (festivalId: string) => {
+        set({ isLoading: true });
+        await get().fetchMapData(festivalId);
       },
 
       // Selectors
@@ -559,6 +760,53 @@ export const useMapStore = create<MapState>()(
 
         return results;
       },
+
+      getVisiblePOIs: () => {
+        const { activeFilters, filterCategory } = get();
+        const allPOIs = get().getAllPOIs();
+
+        // If no active filters and no category, show all
+        if (activeFilters.length === 0 && !filterCategory) {
+          return allPOIs;
+        }
+
+        // If category filter is set, use it
+        if (filterCategory) {
+          return allPOIs.filter((poi) => {
+            if (poi.poiType === 'stand') {
+              return poi.category === filterCategory || filterCategory === 'stand';
+            }
+            if (poi.poiType === 'stage') {
+              return filterCategory === 'stage';
+            }
+            return poi.type === filterCategory;
+          });
+        }
+
+        // If multiple filters are active
+        return allPOIs.filter((poi) => {
+          if (poi.poiType === 'stand') {
+            return activeFilters.includes(poi.category as POICategory) || activeFilters.includes('stand');
+          }
+          if (poi.poiType === 'stage') {
+            return activeFilters.includes('stage');
+          }
+          return activeFilters.includes(poi.type);
+        });
+      },
+
+      getNearbyPOIs: (lat: number, lng: number, radiusMeters: number) => {
+        const allPOIs = get().getAllPOIs();
+
+        return allPOIs.filter((poi) => {
+          const distance = calculateDistance(lat, lng, poi.location.latitude, poi.location.longitude);
+          return distance <= radiusMeters;
+        }).sort((a, b) => {
+          const distA = calculateDistance(lat, lng, a.location.latitude, a.location.longitude);
+          const distB = calculateDistance(lat, lng, b.location.latitude, b.location.longitude);
+          return distA - distB;
+        });
+      },
     }),
     {
       name: 'map-storage',
@@ -585,6 +833,14 @@ export const getCategoryIcon = (category: POICategory): string => {
     entrance: 'enter-outline',
     atm: 'card-outline',
     charging: 'battery-charging-outline',
+    camping: 'bonfire-outline',
+    vip: 'star-outline',
+    security: 'shield-outline',
+    water: 'water-outline',
+    smoking: 'flame-outline',
+    lockers: 'lock-closed-outline',
+    lost_found: 'search-outline',
+    accessibility: 'accessibility-outline',
   };
   return iconMap[category] || 'location-outline';
 };
@@ -603,6 +859,14 @@ export const getCategoryLabel = (category: POICategory): string => {
     entrance: 'Entrees',
     atm: 'Distributeur',
     charging: 'Recharge',
+    camping: 'Camping',
+    vip: 'VIP',
+    security: 'Securite',
+    water: 'Eau',
+    smoking: 'Fumeur',
+    lockers: 'Consignes',
+    lost_found: 'Objets trouves',
+    accessibility: 'Accessibilite',
   };
   return labelMap[category] || category;
 };
@@ -621,6 +885,14 @@ export const getCategoryColor = (category: POICategory): string => {
     entrance: '#22C55E',
     atm: '#0EA5E9',
     charging: '#84CC16',
+    camping: '#14B8A6',
+    vip: '#A855F7',
+    security: '#F59E0B',
+    water: '#3B82F6',
+    smoking: '#78716C',
+    lockers: '#6366F1',
+    lost_found: '#8B5CF6',
+    accessibility: '#6366F1',
   };
   return colorMap[category] || '#6B7280';
 };

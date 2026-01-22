@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: festivals-base
+
+namespace: festivals
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: festivals
+      app.kubernetes.io/managed-by: kustomize
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - admin-deployment.yaml
+  - admin-service.yaml
+  - worker-deployment.yaml
+  - ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: festivals
+
+images:
+  - name: ghcr.io/festivals/api
+    newTag: latest
+  - name: ghcr.io/festivals/admin
+    newTag: latest
+  - name: ghcr.io/festivals/worker
+    newTag: latest

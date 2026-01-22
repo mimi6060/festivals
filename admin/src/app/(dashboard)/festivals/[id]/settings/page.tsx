@@ -17,6 +17,8 @@ import {
   FileText,
   CreditCard,
   Settings,
+  Shield,
+  ChevronRight,
 } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
 import {
@@ -311,6 +313,16 @@ export default function FestivalSettingsPage() {
     { id: 'stripe' as TabType, label: 'Paiement', icon: CreditCard },
   ]
 
+  // Quick links to other settings sections
+  const quickLinks = [
+    {
+      href: `/festivals/${festivalId}/settings/roles`,
+      icon: Shield,
+      title: 'Roles & Permissions',
+      description: 'Manage user roles and access permissions',
+    },
+  ]
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -362,6 +374,29 @@ export default function FestivalSettingsPage() {
           {saveMessage.text}
         </div>
       )}
+
+      {/* Quick Links */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {quickLinks.map((link) => {
+          const Icon = link.icon
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="flex items-center gap-4 rounded-lg border bg-white p-4 hover:border-primary hover:shadow-md transition-all"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                <Icon className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-medium text-gray-900">{link.title}</h3>
+                <p className="text-sm text-gray-500">{link.description}</p>
+              </div>
+              <ChevronRight className="h-5 w-5 text-gray-400" />
+            </Link>
+          )
+        })}
+      </div>
 
       {/* Tabs */}
       <div className="border-b">

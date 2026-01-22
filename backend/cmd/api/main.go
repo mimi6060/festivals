@@ -12,14 +12,46 @@ import (
 	"github.com/mimi6060/festivals/backend/internal/config"
 	"github.com/mimi6060/festivals/backend/internal/domain/festival"
 	"github.com/mimi6060/festivals/backend/internal/domain/product"
+	"github.com/mimi6060/festivals/backend/internal/domain/realtime"
 	"github.com/mimi6060/festivals/backend/internal/domain/stand"
 	"github.com/mimi6060/festivals/backend/internal/domain/wallet"
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/cache"
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/database"
+	"github.com/mimi6060/festivals/backend/internal/infrastructure/websocket"
 	"github.com/mimi6060/festivals/backend/internal/middleware"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+
+	_ "github.com/mimi6060/festivals/backend/docs"
 )
+
+// @title Festivals API
+// @version 1.0.0
+// @description API for managing festivals, cashless payments, tickets, and more.
+// @termsOfService https://festivals.io/terms
+
+// @contact.name API Support
+// @contact.url https://festivals.io/support
+// @contact.email support@festivals.io
+
+// @license.name MIT
+// @license.url https://opensource.org/licenses/MIT
+
+// @host localhost:8080
+// @BasePath /api/v1
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
+
+// @securityDefinitions.apikey ApiKeyAuth
+// @in header
+// @name X-API-Key
+// @description API Key for external integrations
 
 func main() {
 	// Setup logger
@@ -46,6 +78,11 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to connect to Redis")
 	}
 
+	// Initialize WebSocket hub and realtime service
+	wsHub := websocket.NewHub()
+	go wsHub.Run()
+	realtimeService := realtime.NewService(wsHub, rdb)
+
 	// Setup Gin
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -65,6 +102,29 @@ func main() {
 			"status":  "ok",
 			"version": "1.0.0",
 		})
+	})
+
+	// Swagger documentation endpoint
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler,
+		ginSwagger.URL("/swagger/doc.json"),
+		ginSwagger.DefaultModelsExpandDepth(-1),
+		ginSwagger.DocExpansion("list"),
+		ginSwagger.PersistAuthorization(true),
+	))
+
+	// WebSocket endpoints for real-time dashboard
+	wsGroup := router.Group("/ws")
+	{
+		// Dashboard WebSocket - real-time stats, transactions, revenue
+		wsGroup.GET("/dashboard/:festivalId", websocket.DashboardHandler(wsHub))
+
+		// Alerts WebSocket - real-time alerts only
+		wsGroup.GET("/alerts/:festivalId", websocket.AlertsHandler(wsHub))
+	}
+
+	// WebSocket stats endpoint (for monitoring)
+	router.GET("/ws/stats", func(c *gin.Context) {
+		c.JSON(http.StatusOK, realtimeService.GetHubStats())
 	})
 
 	// Initialize repositories

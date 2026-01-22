@@ -1,0 +1,56 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "festivals.fullname" . }}-ingress
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "festivals.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- range .Values.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- if .Values.api.enabled }}
+    - host: {{ .Values.ingress.hosts.api.host | quote }}
+      http:
+        paths:
+          {{- range .Values.ingress.hosts.api.paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "festivals.fullname" $ }}-api
+                port:
+                  number: {{ $.Values.api.service.port }}
+          {{- end }}
+    {{- end }}
+    {{- if .Values.admin.enabled }}
+    - host: {{ .Values.ingress.hosts.admin.host | quote }}
+      http:
+        paths:
+          {{- range .Values.ingress.hosts.admin.paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "festivals.fullname" $ }}-admin
+                port:
+                  number: {{ $.Values.admin.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

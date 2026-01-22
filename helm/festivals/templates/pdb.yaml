@@ -1,0 +1,50 @@
+{{- if .Values.api.enabled }}
+{{- if .Values.api.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "festivals.fullname" . }}-api-pdb
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "festivals.api.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.api.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "festivals.api.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}
+---
+{{- if .Values.admin.enabled }}
+{{- if .Values.admin.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "festivals.fullname" . }}-admin-pdb
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "festivals.admin.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.admin.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "festivals.admin.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}
+---
+{{- if .Values.worker.enabled }}
+{{- if .Values.worker.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "festivals.fullname" . }}-worker-pdb
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "festivals.worker.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.worker.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "festivals.worker.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}

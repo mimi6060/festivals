@@ -1,0 +1,22 @@
+{
+  "local": {
+    "baseUrl": "http://localhost:8080",
+    "wsUrl": "ws://localhost:8080",
+    "description": "Local development environment"
+  },
+  "docker": {
+    "baseUrl": "http://api:8080",
+    "wsUrl": "ws://api:8080",
+    "description": "Docker compose environment"
+  },
+  "staging": {
+    "baseUrl": "https://api-staging.festivals.app",
+    "wsUrl": "wss://api-staging.festivals.app",
+    "description": "Staging environment"
+  },
+  "production": {
+    "baseUrl": "https://api.festivals.app",
+    "wsUrl": "wss://api.festivals.app",
+    "description": "Production environment (use with caution)"
+  }
+}

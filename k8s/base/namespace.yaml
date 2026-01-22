@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: festivals
+  labels:
+    app.kubernetes.io/name: festivals
+    app.kubernetes.io/managed-by: kustomize

@@ -1,4 +1,4 @@
-.PHONY: dev build test lint clean docker-build docker-up docker-down migrate
+.PHONY: dev build test lint clean docker-build docker-up docker-down migrate swagger docs
 
 # Development
 dev:
@@ -57,6 +57,28 @@ deps:
 # Generate
 generate:
 	go generate ./...
+
+# Swagger/OpenAPI Documentation
+swagger:
+	@echo "Installing swag if not present..."
+	@which swag > /dev/null || go install github.com/swaggo/swag/cmd/swag@latest
+	@echo "Generating Swagger documentation..."
+	swag init -g ./cmd/api/main.go -o ./docs --parseDependency --parseInternal
+	@echo "Swagger documentation generated in ./docs"
+
+swagger-fmt:
+	swag fmt
+
+# Generate all documentation
+docs: swagger
+	@echo "Copying swagger.json to docs/api..."
+	@mkdir -p ../docs/api
+	@cp ./docs/swagger.json ../docs/api/swagger.json 2>/dev/null || true
+	@echo "Documentation generated successfully!"
+	@echo ""
+	@echo "Access Swagger UI at: http://localhost:8080/swagger/index.html"
+	@echo "OpenAPI spec: ../docs/api/openapi.yaml"
+	@echo "Postman collection: ../docs/api/postman/Festivals.postman_collection.json"
 
 # All
 all: deps lint test build

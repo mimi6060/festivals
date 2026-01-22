@@ -37,6 +37,17 @@ type Config struct {
 	// Mail
 	PostalURL    string
 	PostalAPIKey string
+
+	// Twilio SMS
+	TwilioAccountSID string
+	TwilioAuthToken  string
+	TwilioFromNumber string
+	TwilioRateLimit  int // Messages per second, 0 for no limit
+
+	// OpenAI
+	OpenAIAPIKey     string
+	OpenAIModel      string
+	OpenAIEmbedModel string
 }
 
 func Load() (*Config, error) {
@@ -73,6 +84,17 @@ func Load() (*Config, error) {
 		// Mail
 		PostalURL:    getEnv("POSTAL_URL", "http://localhost:5000"),
 		PostalAPIKey: getEnv("POSTAL_API_KEY", ""),
+
+		// Twilio SMS
+		TwilioAccountSID: getEnv("TWILIO_ACCOUNT_SID", ""),
+		TwilioAuthToken:  getEnv("TWILIO_AUTH_TOKEN", ""),
+		TwilioFromNumber: getEnv("TWILIO_FROM_NUMBER", ""),
+		TwilioRateLimit:  getEnvInt("TWILIO_RATE_LIMIT", 10),
+
+		// OpenAI
+		OpenAIAPIKey:     getEnv("OPENAI_API_KEY", ""),
+		OpenAIModel:      getEnv("OPENAI_MODEL", "gpt-4o"),
+		OpenAIEmbedModel: getEnv("OPENAI_EMBED_MODEL", "text-embedding-3-small"),
 	}, nil
 }
 

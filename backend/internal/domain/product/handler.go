@@ -48,6 +48,19 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 }
 
 // Create creates a new product
+// @Summary Create a new product
+// @Description Create a new product for a stand
+// @Tags products
+// @Accept json
+// @Produce json
+// @Param festivalId path string true "Festival ID" format(uuid)
+// @Param request body CreateProductRequest true "Product data"
+// @Success 201 {object} response.Response{data=ProductResponse} "Product created"
+// @Failure 400 {object} response.ErrorResponse "Invalid request"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /festivals/{festivalId}/products [post]
 func (h *Handler) Create(c *gin.Context) {
 	var req CreateProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -65,6 +78,19 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 // CreateBulk creates multiple products at once
+// @Summary Bulk create products
+// @Description Create multiple products at once
+// @Tags products
+// @Accept json
+// @Produce json
+// @Param festivalId path string true "Festival ID" format(uuid)
+// @Param request body BulkCreateProductRequest true "Products data"
+// @Success 201 {object} response.Response{data=[]ProductResponse} "Products created"
+// @Failure 400 {object} response.ErrorResponse "Invalid request"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /festivals/{festivalId}/products/bulk [post]
 func (h *Handler) CreateBulk(c *gin.Context) {
 	var req BulkCreateProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -87,6 +113,20 @@ func (h *Handler) CreateBulk(c *gin.Context) {
 }
 
 // List lists products (with optional standId filter)
+// @Summary List products
+// @Description Get paginated list of products for a stand
+// @Tags products
+// @Produce json
+// @Param standId query string true "Stand ID" format(uuid)
+// @Param page query int false "Page number" default(1)
+// @Param per_page query int false "Items per page" default(50)
+// @Param category query string false "Filter by category" Enums(food, drinks, merchandise, other)
+// @Success 200 {object} response.Response{data=[]ProductResponse,meta=response.Meta} "Product list"
+// @Failure 400 {object} response.ErrorResponse "Invalid stand ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /festivals/{festivalId}/products [get]
 func (h *Handler) List(c *gin.Context) {
 	standIDStr := c.Query("standId")
 	if standIDStr == "" {
@@ -139,6 +179,19 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 // ListByStand lists products for a specific stand
+// @Summary List products by stand
+// @Description Get paginated list of products for a specific stand
+// @Tags products
+// @Produce json
+// @Param standId path string true "Stand ID" format(uuid)
+// @Param page query int false "Page number" default(1)
+// @Param per_page query int false "Items per page" default(50)
+// @Success 200 {object} response.Response{data=[]ProductResponse,meta=response.Meta} "Product list"
+// @Failure 400 {object} response.ErrorResponse "Invalid stand ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /stands/{standId}/products [get]
 func (h *Handler) ListByStand(c *gin.Context) {
 	standID, err := uuid.Parse(c.Param("standId"))
 	if err != nil {
@@ -168,6 +221,18 @@ func (h *Handler) ListByStand(c *gin.Context) {
 }
 
 // GetByID gets a product by ID
+// @Summary Get product by ID
+// @Description Get detailed information about a specific product
+// @Tags products
+// @Produce json
+// @Param id path string true "Product ID" format(uuid)
+// @Success 200 {object} response.Response{data=ProductResponse} "Product details"
+// @Failure 400 {object} response.ErrorResponse "Invalid product ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Product not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /festivals/{festivalId}/products/{id} [get]
 func (h *Handler) GetByID(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -189,6 +254,20 @@ func (h *Handler) GetByID(c *gin.Context) {
 }
 
 // Update updates a product
+// @Summary Update product
+// @Description Update an existing product
+// @Tags products
+// @Accept json
+// @Produce json
+// @Param id path string true "Product ID" format(uuid)
+// @Param request body UpdateProductRequest true "Update data"
+// @Success 200 {object} response.Response{data=ProductResponse} "Updated product"
+// @Failure 400 {object} response.ErrorResponse "Invalid request"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Product not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /festivals/{festivalId}/products/{id} [patch]
 func (h *Handler) Update(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -216,6 +295,17 @@ func (h *Handler) Update(c *gin.Context) {
 }
 
 // Delete deletes a product
+// @Summary Delete product
+// @Description Permanently delete a product
+// @Tags products
+// @Param id path string true "Product ID" format(uuid)
+// @Success 204 "Product deleted"
+// @Failure 400 {object} response.ErrorResponse "Invalid product ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Product not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /festivals/{festivalId}/products/{id} [delete]
 func (h *Handler) Delete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -236,6 +326,18 @@ func (h *Handler) Delete(c *gin.Context) {
 }
 
 // Activate activates a product
+// @Summary Activate product
+// @Description Activate a product for sale
+// @Tags products
+// @Produce json
+// @Param id path string true "Product ID" format(uuid)
+// @Success 200 {object} response.Response{data=ProductResponse} "Activated product"
+// @Failure 400 {object} response.ErrorResponse "Invalid product ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Product not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /festivals/{festivalId}/products/{id}/activate [post]
 func (h *Handler) Activate(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -257,6 +359,18 @@ func (h *Handler) Activate(c *gin.Context) {
 }
 
 // Deactivate deactivates a product
+// @Summary Deactivate product
+// @Description Deactivate a product, preventing sales
+// @Tags products
+// @Produce json
+// @Param id path string true "Product ID" format(uuid)
+// @Success 200 {object} response.Response{data=ProductResponse} "Deactivated product"
+// @Failure 400 {object} response.ErrorResponse "Invalid product ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Product not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /festivals/{festivalId}/products/{id}/deactivate [post]
 func (h *Handler) Deactivate(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -278,6 +392,20 @@ func (h *Handler) Deactivate(c *gin.Context) {
 }
 
 // UpdateStock updates product stock
+// @Summary Update product stock
+// @Description Adjust product stock quantity (can be positive or negative)
+// @Tags products
+// @Accept json
+// @Produce json
+// @Param id path string true "Product ID" format(uuid)
+// @Param request body object{delta=int} true "Stock delta"
+// @Success 200 {object} response.Response{data=ProductResponse} "Updated product"
+// @Failure 400 {object} response.ErrorResponse "Invalid request or insufficient stock"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Product not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /festivals/{festivalId}/products/{id}/stock [post]
 func (h *Handler) UpdateStock(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {

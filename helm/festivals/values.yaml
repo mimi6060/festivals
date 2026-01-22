@@ -1,0 +1,347 @@
+# Default values for festivals Helm chart
+# This is a YAML-formatted file.
+
+# Global settings
+global:
+  imageRegistry: "ghcr.io"
+  imagePullSecrets: []
+  storageClass: ""
+
+# Namespace configuration
+namespace:
+  create: true
+  name: festivals
+
+# API configuration
+api:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: festivals/api
+    tag: "latest"
+    pullPolicy: Always
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+    metricsPort: 9090
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  livenessProbe:
+    httpGet:
+      path: /health/live
+      port: http
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health/ready
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# Admin configuration
+admin:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: festivals/admin
+    tag: "latest"
+    pullPolicy: Always
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  livenessProbe:
+    httpGet:
+      path: /api/health
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /api/health
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  env:
+    NODE_ENV: production
+    NEXT_TELEMETRY_DISABLED: "1"
+
+# Worker configuration
+worker:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: festivals/worker
+    tag: "latest"
+    pullPolicy: Always
+
+  args:
+    - "--concurrency=10"
+    - "--queues=critical:6,default:3,low:1"
+
+  service:
+    type: ClusterIP
+    port: 9090
+    targetPort: 9090
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 60
+    targetMemoryUtilizationPercentage: 70
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  livenessProbe:
+    httpGet:
+      path: /health/live
+      port: metrics
+    initialDelaySeconds: 15
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health/ready
+      port: metrics
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  terminationGracePeriodSeconds: 300
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+  hosts:
+    api:
+      host: api.festivals.app
+      paths:
+        - path: /
+          pathType: Prefix
+    admin:
+      host: admin.festivals.app
+      paths:
+        - path: /
+          pathType: Prefix
+
+  tls:
+    - secretName: festivals-tls
+      hosts:
+        - api.festivals.app
+        - admin.festivals.app
+
+# Configuration
+config:
+  appEnv: production
+  logLevel: info
+  logFormat: json
+  apiPort: "8080"
+  adminPort: "3000"
+  metricsPort: "9090"
+
+  # Database (non-sensitive)
+  dbHost: postgres-service
+  dbPort: "5432"
+  dbName: festivals
+  dbSslMode: require
+  dbMaxOpenConns: "25"
+  dbMaxIdleConns: "5"
+  dbConnMaxLifetime: "5m"
+
+  # Redis (non-sensitive)
+  redisHost: redis-service
+  redisPort: "6379"
+  redisDb: "0"
+
+  # Storage
+  storageType: s3
+  s3Region: eu-west-1
+
+  # Queue
+  queueConcurrency: "10"
+  queueRetryMax: "3"
+
+  # Features
+  enableMetrics: "true"
+  enableTracing: "true"
+  enableProfiling: "false"
+
+  # CORS
+  corsAllowedOrigins: "https://admin.festivals.app,https://festivals.app"
+  corsMaxAge: "86400"
+
+# Secrets - Use external-secrets, sealed-secrets, or vault in production
+secrets:
+  create: true
+  # Database
+  dbUser: ""
+  dbPassword: ""
+  # Redis
+  redisPassword: ""
+  # JWT
+  jwtSecret: ""
+  jwtRefreshSecret: ""
+  # Stripe
+  stripeSecretKey: ""
+  stripeWebhookSecret: ""
+  # AWS
+  awsAccessKeyId: ""
+  awsSecretAccessKey: ""
+  s3Bucket: ""
+  # Email
+  smtpPassword: ""
+  sendgridApiKey: ""
+  # Firebase
+  firebaseServiceAccount: ""
+  # Monitoring
+  sentryDsn: ""
+  # OAuth
+  googleClientSecret: ""
+  appleClientSecret: ""
+
+# Service Account
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+# Pod Security Context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Container Security Context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Network Policies
+networkPolicy:
+  enabled: true
+
+# Monitoring
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+
+# External dependencies
+postgresql:
+  enabled: false
+  auth:
+    postgresPassword: ""
+    username: festivals
+    password: ""
+    database: festivals
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+redis:
+  enabled: false
+  auth:
+    enabled: true
+    password: ""
+  master:
+    persistence:
+      enabled: true
+      size: 1Gi

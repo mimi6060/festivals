@@ -1,0 +1,45 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: festivals-ingress
+  annotations:
+    # Production Let's Encrypt
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Higher rate limits for production
+    nginx.ingress.kubernetes.io/limit-rps: "200"
+    nginx.ingress.kubernetes.io/limit-connections: "100"
+    # Enable gzip compression
+    nginx.ingress.kubernetes.io/enable-brotli: "true"
+    # Backend protocol
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    # Sticky sessions for admin
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/session-cookie-name: "festivals-affinity"
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "3600"
+spec:
+  tls:
+    - hosts:
+        - api.festivals.app
+        - admin.festivals.app
+      secretName: prod-festivals-tls
+  rules:
+    - host: api.festivals.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prod-festivals-api
+                port:
+                  number: 80
+    - host: admin.festivals.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prod-festivals-admin
+                port:
+                  number: 80

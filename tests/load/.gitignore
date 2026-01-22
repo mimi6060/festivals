@@ -1,0 +1,10 @@
+# Load test results (can be large)
+results/*.json
+results/*.html
+!results/.gitkeep
+
+# k6 output files
+*.log
+
+# Temporary files
+*.tmp

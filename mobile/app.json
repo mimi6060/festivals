@@ -53,8 +53,15 @@
         {
           "locationWhenInUsePermission": "Permet de vous localiser sur la carte"
         }
+      ],
+      [
+        "@config-plugins/detox",
+        {}
       ]
     ],
+    "detox": {
+      "skipProguard": true
+    },
     "experiments": {
       "typedRoutes": true
     }

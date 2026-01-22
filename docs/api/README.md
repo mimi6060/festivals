@@ -342,6 +342,24 @@ curl -X GET "https://api.festivals.app/health"
 
 ---
 
+## Interactive Documentation
+
+Access the Swagger UI for interactive API exploration:
+
+- **Local**: [http://localhost:8080/swagger/index.html](http://localhost:8080/swagger/index.html)
+- **Staging**: [https://api-staging.festivals.app/swagger/index.html](https://api-staging.festivals.app/swagger/index.html)
+- **Production**: [https://api.festivals.app/swagger/index.html](https://api.festivals.app/swagger/index.html)
+
+---
+
+## OpenAPI Specification
+
+Download the OpenAPI 3.0 specification:
+
+- [openapi.yaml](./openapi.yaml) - OpenAPI 3.0 specification
+
+---
+
 ## API Documentation Files
 
 | Document | Description |
@@ -352,6 +370,18 @@ curl -X GET "https://api.festivals.app/health"
 | [stands.md](./stands.md) | Stand/vendor endpoints |
 | [products.md](./products.md) | Product management endpoints |
 | [lineup.md](./lineup.md) | Artist and lineup endpoints |
+| [authentication.md](./authentication.md) | Authentication guide |
+| [errors.md](./errors.md) | Error codes reference |
+| [webhooks.md](./webhooks.md) | Webhook configuration |
+| [rate-limiting.md](./rate-limiting.md) | Rate limiting details |
+
+---
+
+## Postman Collection
+
+Import the Postman collection for easy API testing:
+
+- [Festivals.postman_collection.json](./postman/Festivals.postman_collection.json)
 
 ---
 

@@ -4,7 +4,10 @@
 .PHONY: help dev dev-api dev-admin dev-mobile build build-api build-admin \
         test test-api test-admin test-mobile lint lint-api lint-admin lint-mobile \
         migrate migrate-up migrate-down migrate-create docker-build docker-up docker-down \
-        docker-logs clean install deps prod-up prod-down
+        docker-logs clean install deps prod-up prod-down \
+        load-smoke load-test load-stress load-spike load-soak \
+        load-scenario-tickets load-scenario-wallet load-scenario-mixed load-results \
+        swagger docs docs-serve
 
 # Default target
 .DEFAULT_GOAL := help
@@ -208,8 +211,36 @@ install: deps ## Alias for deps
 generate: ## Run code generation
 	cd backend && go generate ./...
 
-generate-api-docs: ## Generate API documentation
+generate-api-docs: ## Generate API documentation (alias for swagger)
 	cd backend && swag init -g ./cmd/api/main.go -o ./docs
+
+# ============================================
+# API Documentation
+# ============================================
+swagger: ## Generate Swagger/OpenAPI documentation
+	@echo "$(CYAN)Generating Swagger documentation...$(RESET)"
+	@which swag > /dev/null || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
+	cd backend && swag init -g ./cmd/api/main.go -o ./docs --parseDependency --parseInternal
+	@cp backend/docs/swagger.json docs/api/swagger.json 2>/dev/null || true
+	@echo "$(GREEN)Swagger documentation generated!$(RESET)"
+	@echo ""
+	@echo "Access Swagger UI at: http://localhost:8080/swagger/index.html"
+
+docs: swagger ## Generate all API documentation
+	@echo "$(CYAN)Documentation files:$(RESET)"
+	@echo "  - OpenAPI 3.0:    docs/api/openapi.yaml"
+	@echo "  - Swagger 2.0:    docs/api/swagger.json"
+	@echo "  - Postman:        docs/api/postman/Festivals.postman_collection.json"
+	@echo "  - API Guide:      docs/api/README.md"
+	@echo "  - Authentication: docs/api/authentication.md"
+	@echo "  - Errors:         docs/api/errors.md"
+	@echo "  - Webhooks:       docs/api/webhooks.md"
+	@echo "  - Rate Limiting:  docs/api/rate-limiting.md"
+
+docs-serve: ## Serve documentation locally
+	@echo "$(CYAN)Starting documentation server...$(RESET)"
+	@echo "Swagger UI available at: http://localhost:8080/swagger/index.html"
+	@echo "Start the API with 'make dev-api' to access documentation"
 
 # ============================================
 # Utilities
@@ -254,3 +285,64 @@ ci: lint test build ## Run CI pipeline locally
 ci-api: lint-api test-api build-api ## Run CI for API only
 
 ci-admin: lint-admin test-admin build-admin ## Run CI for admin only
+
+# ============================================
+# Load Testing (k6)
+# ============================================
+load-smoke: ## Run smoke load test (quick validation)
+	@echo "$(CYAN)Running smoke load test...$(RESET)"
+	cd tests/load && k6 run \
+		--env BASE_URL=$${BASE_URL:-http://localhost:8080} \
+		scripts/smoke.js
+
+load-test: ## Run standard load test (100 users, 10 min)
+	@echo "$(CYAN)Running load test...$(RESET)"
+	cd tests/load && k6 run \
+		--env BASE_URL=$${BASE_URL:-http://localhost:8080} \
+		--out json=results/load-$$(date +%Y%m%d-%H%M%S).json \
+		scripts/load.js
+
+load-stress: ## Run stress test (500 users, 15 min)
+	@echo "$(YELLOW)WARNING: Stress test will push the system to its limits$(RESET)"
+	@read -p "Continue? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1
+	cd tests/load && k6 run \
+		--env BASE_URL=$${BASE_URL:-http://localhost:8080} \
+		--out json=results/stress-$$(date +%Y%m%d-%H%M%S).json \
+		scripts/stress.js
+
+load-spike: ## Run spike test (sudden traffic burst)
+	@echo "$(YELLOW)WARNING: Spike test simulates sudden traffic bursts$(RESET)"
+	cd tests/load && k6 run \
+		--env BASE_URL=$${BASE_URL:-http://localhost:8080} \
+		--out json=results/spike-$$(date +%Y%m%d-%H%M%S).json \
+		scripts/spike.js
+
+load-soak: ## Run soak test (endurance, 2 hours)
+	@echo "$(YELLOW)WARNING: Soak test runs for approximately 2 hours$(RESET)"
+	@read -p "Continue? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1
+	cd tests/load && k6 run \
+		--env BASE_URL=$${BASE_URL:-http://localhost:8080} \
+		--out json=results/soak-$$(date +%Y%m%d-%H%M%S).json \
+		scripts/soak.js
+
+load-scenario-tickets: ## Run ticket purchase scenario
+	@echo "$(CYAN)Running ticket purchase scenario...$(RESET)"
+	cd tests/load && k6 run \
+		--env BASE_URL=$${BASE_URL:-http://localhost:8080} \
+		scripts/scenarios/ticket-purchase.js
+
+load-scenario-wallet: ## Run wallet payment scenario
+	@echo "$(CYAN)Running wallet payment scenario...$(RESET)"
+	cd tests/load && k6 run \
+		--env BASE_URL=$${BASE_URL:-http://localhost:8080} \
+		scripts/scenarios/wallet-payment.js
+
+load-scenario-mixed: ## Run mixed realistic scenario
+	@echo "$(CYAN)Running mixed realistic scenario...$(RESET)"
+	cd tests/load && k6 run \
+		--env BASE_URL=$${BASE_URL:-http://localhost:8080} \
+		scripts/scenarios/mixed.js
+
+load-results: ## Create results directory for load tests
+	@mkdir -p tests/load/results
+	@echo "$(GREEN)Results directory created at tests/load/results$(RESET)"

@@ -1,0 +1,293 @@
+name: Load Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of load test to run'
+        required: true
+        default: 'smoke'
+        type: choice
+        options:
+          - smoke
+          - load
+          - stress
+          - spike
+          - scenario-ticket
+          - scenario-wallet
+          - scenario-mixed
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      vus_multiplier:
+        description: 'VU multiplier (1 = default, 2 = double load)'
+        required: false
+        default: '1'
+        type: string
+
+  release:
+    types: [published]
+
+  schedule:
+    # Run smoke tests daily at 3 AM UTC
+    - cron: '0 3 * * *'
+
+env:
+  K6_VERSION: '0.49.0'
+
+jobs:
+  prepare:
+    name: Prepare Load Test
+    runs-on: ubuntu-latest
+    outputs:
+      base_url: ${{ steps.set-env.outputs.base_url }}
+      test_script: ${{ steps.set-script.outputs.script }}
+      test_name: ${{ steps.set-script.outputs.name }}
+
+    steps:
+      - name: Set environment URL
+        id: set-env
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ENV="${{ inputs.environment }}"
+          else
+            ENV="staging"
+          fi
+
+          if [ "$ENV" == "production" ]; then
+            echo "base_url=https://api.festivals.app" >> $GITHUB_OUTPUT
+          else
+            echo "base_url=https://api-staging.festivals.app" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set test script
+        id: set-script
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TEST_TYPE="${{ inputs.test_type }}"
+          elif [ "${{ github.event_name }}" == "release" ]; then
+            TEST_TYPE="load"
+          else
+            TEST_TYPE="smoke"
+          fi
+
+          case "$TEST_TYPE" in
+            smoke)
+              echo "script=scripts/smoke.js" >> $GITHUB_OUTPUT
+              echo "name=Smoke Test" >> $GITHUB_OUTPUT
+              ;;
+            load)
+              echo "script=scripts/load.js" >> $GITHUB_OUTPUT
+              echo "name=Load Test" >> $GITHUB_OUTPUT
+              ;;
+            stress)
+              echo "script=scripts/stress.js" >> $GITHUB_OUTPUT
+              echo "name=Stress Test" >> $GITHUB_OUTPUT
+              ;;
+            spike)
+              echo "script=scripts/spike.js" >> $GITHUB_OUTPUT
+              echo "name=Spike Test" >> $GITHUB_OUTPUT
+              ;;
+            scenario-ticket)
+              echo "script=scripts/scenarios/ticket-purchase.js" >> $GITHUB_OUTPUT
+              echo "name=Ticket Purchase Scenario" >> $GITHUB_OUTPUT
+              ;;
+            scenario-wallet)
+              echo "script=scripts/scenarios/wallet-payment.js" >> $GITHUB_OUTPUT
+              echo "name=Wallet Payment Scenario" >> $GITHUB_OUTPUT
+              ;;
+            scenario-mixed)
+              echo "script=scripts/scenarios/mixed.js" >> $GITHUB_OUTPUT
+              echo "name=Mixed Realistic Scenario" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "script=scripts/smoke.js" >> $GITHUB_OUTPUT
+              echo "name=Smoke Test" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+  load-test:
+    name: Run ${{ needs.prepare.outputs.test_name }}
+    runs-on: ubuntu-latest
+    needs: prepare
+    timeout-minutes: 180  # 3 hours max for soak tests
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6=${{ env.K6_VERSION }}
+
+      - name: Verify k6 installation
+        run: k6 version
+
+      - name: Run load test
+        working-directory: tests/load
+        env:
+          BASE_URL: ${{ needs.prepare.outputs.base_url }}
+          VUS_MULTIPLIER: ${{ inputs.vus_multiplier || '1' }}
+          K6_OUT: json=results.json
+        run: |
+          echo "Running ${{ needs.prepare.outputs.test_name }} against $BASE_URL"
+          k6 run \
+            --out json=results.json \
+            --summary-export=summary.json \
+            --tag testrun_id=${{ github.run_id }} \
+            --tag commit=${{ github.sha }} \
+            --tag branch=${{ github.ref_name }} \
+            ${{ needs.prepare.outputs.test_script }}
+
+      - name: Generate HTML report
+        if: always()
+        working-directory: tests/load
+        run: |
+          # Create simple HTML report from summary
+          cat << 'EOF' > report.html
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Load Test Report - ${{ needs.prepare.outputs.test_name }}</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; }
+              h1 { color: #333; }
+              .summary { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
+              .metric { display: inline-block; margin: 10px 20px 10px 0; }
+              .metric-value { font-size: 24px; font-weight: bold; color: #2196F3; }
+              .metric-label { font-size: 12px; color: #666; }
+              .pass { color: #4CAF50; }
+              .fail { color: #f44336; }
+              table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+              th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+              th { background: #f5f5f5; }
+              .threshold-pass { background: #e8f5e9; }
+              .threshold-fail { background: #ffebee; }
+            </style>
+          </head>
+          <body>
+            <h1>Load Test Report</h1>
+            <div class="summary">
+              <h2>${{ needs.prepare.outputs.test_name }}</h2>
+              <p><strong>Environment:</strong> ${{ needs.prepare.outputs.base_url }}</p>
+              <p><strong>Run ID:</strong> ${{ github.run_id }}</p>
+              <p><strong>Commit:</strong> ${{ github.sha }}</p>
+              <p><strong>Date:</strong> $(date -u)</p>
+            </div>
+            <h2>Results Summary</h2>
+            <pre>$(cat summary.json 2>/dev/null || echo "Summary not available")</pre>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results-${{ github.run_id }}
+          path: |
+            tests/load/results.json
+            tests/load/summary.json
+            tests/load/report.html
+          retention-days: 30
+
+      - name: Check thresholds
+        working-directory: tests/load
+        run: |
+          # Parse summary and check for threshold failures
+          if [ -f summary.json ]; then
+            FAILED=$(jq -r '.root_group.checks // [] | map(select(.passes == 0)) | length' summary.json 2>/dev/null || echo "0")
+            if [ "$FAILED" != "0" ] && [ "$FAILED" != "null" ]; then
+              echo "::error::$FAILED threshold checks failed"
+              exit 1
+            fi
+          fi
+          echo "All thresholds passed"
+
+      - name: Post summary to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let summary = 'Load test completed. ';
+
+            try {
+              const data = JSON.parse(fs.readFileSync('tests/load/summary.json', 'utf8'));
+              summary += `View full results in artifacts.`;
+            } catch (e) {
+              summary += 'Results available in artifacts.';
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Load Test Results\n\n${summary}\n\n[View Artifacts](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
+            });
+
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [prepare, load-test]
+    if: always()
+
+    steps:
+      - name: Send Slack notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          STATUS="${{ needs.load-test.result }}"
+          if [ "$STATUS" == "success" ]; then
+            EMOJI=":white_check_mark:"
+            COLOR="good"
+          else
+            EMOJI=":x:"
+            COLOR="danger"
+          fi
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"attachments\": [{
+                \"color\": \"$COLOR\",
+                \"title\": \"$EMOJI Load Test: ${{ needs.prepare.outputs.test_name }}\",
+                \"fields\": [
+                  {\"title\": \"Status\", \"value\": \"$STATUS\", \"short\": true},
+                  {\"title\": \"Environment\", \"value\": \"${{ needs.prepare.outputs.base_url }}\", \"short\": true},
+                  {\"title\": \"Run\", \"value\": \"<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Results>\", \"short\": false}
+                ]
+              }]
+            }" \
+            $SLACK_WEBHOOK_URL || true
+
+      - name: Create GitHub issue on failure
+        if: needs.load-test.result == 'failure' && github.event_name != 'workflow_dispatch'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Load Test Failed: ${{ needs.prepare.outputs.test_name }}`,
+              body: `## Load Test Failure Report
+
+            **Test:** ${{ needs.prepare.outputs.test_name }}
+            **Environment:** ${{ needs.prepare.outputs.base_url }}
+            **Run ID:** ${{ github.run_id }}
+            **Trigger:** ${{ github.event_name }}
+
+            [View Run Details](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            Please investigate the performance issues.`,
+              labels: ['performance', 'automated']
+            });

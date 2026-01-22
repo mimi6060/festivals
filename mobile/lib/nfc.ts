@@ -412,3 +412,200 @@ export const startNFCSession = (alertMessage?: string, onTagDiscovered?: (tag: N
 export const stopNFCSession = () => nfcManager.stopNFCSession();
 export const openNFCSettings = () => nfcManager.openNFCSettings();
 export const cancelNFCOperation = () => nfcManager.cancelOperation();
+
+/**
+ * Read NFC tag - wrapper for readTag with default message
+ */
+export const readNFCTag = async (
+  alertMessage: string = 'Approchez votre bracelet NFC',
+  timeout?: number
+): Promise<NFCTag> => {
+  return nfcManager.readTag(alertMessage, timeout);
+};
+
+/**
+ * Write data to NFC tag - wrapper for writeTag
+ */
+export const writeNFCTag = async (
+  data: string,
+  alertMessage: string = 'Approchez votre bracelet NFC pour ecrire'
+): Promise<NFCTag> => {
+  return nfcManager.writeTag(data, alertMessage);
+};
+
+/**
+ * Format payment data for NFC transaction
+ * Creates a structured payload for payment processing
+ */
+export interface PaymentPayload {
+  uid: string;
+  amount: number; // Amount in cents
+  timestamp: number;
+  standId?: string;
+  staffId?: string;
+  deviceId?: string;
+  signature?: string;
+}
+
+export const formatForPayment = (
+  uid: string,
+  amount: number,
+  options?: {
+    standId?: string;
+    staffId?: string;
+    deviceId?: string;
+  }
+): PaymentPayload => {
+  return {
+    uid,
+    amount: Math.round(amount * 100), // Convert to cents
+    timestamp: Date.now(),
+    standId: options?.standId,
+    staffId: options?.staffId,
+    deviceId: options?.deviceId,
+  };
+};
+
+/**
+ * Validate NFC tag for payment
+ * Checks if the tag is valid and can be used for payment
+ */
+export interface ValidationResult {
+  valid: boolean;
+  walletId?: string;
+  balance?: number;
+  status?: string;
+  message?: string;
+}
+
+export const validateTagForPayment = async (
+  uid: string,
+  amount: number
+): Promise<ValidationResult> => {
+  // This would typically make an API call to validate the tag
+  // For now, return a mock validation
+  return {
+    valid: true,
+    walletId: 'wallet-123',
+    balance: 100.00,
+    status: 'ACTIVE',
+    message: 'OK',
+  };
+};
+
+/**
+ * Generate offline token for NFC transactions
+ * Used when network connectivity is limited
+ */
+export interface OfflineToken {
+  token: string;
+  validUntil: Date;
+  maxAmount: number;
+}
+
+export const generateOfflineToken = async (uid: string): Promise<OfflineToken> => {
+  // This would typically make an API call to get an offline token
+  // For now, return a mock token
+  const validUntil = new Date();
+  validUntil.setMinutes(validUntil.getMinutes() + 15);
+
+  return {
+    token: `offline_token_${uid}_${Date.now()}`,
+    validUntil,
+    maxAmount: 50.00,
+  };
+};
+
+/**
+ * Process offline payment
+ * Stores the payment locally for later sync
+ */
+export interface OfflinePayment {
+  id: string;
+  uid: string;
+  amount: number;
+  timestamp: Date;
+  token: string;
+  synced: boolean;
+}
+
+const offlinePayments: OfflinePayment[] = [];
+
+export const processOfflinePayment = async (
+  uid: string,
+  amount: number,
+  token: string
+): Promise<OfflinePayment> => {
+  const payment: OfflinePayment = {
+    id: `offline_${Date.now()}`,
+    uid,
+    amount,
+    timestamp: new Date(),
+    token,
+    synced: false,
+  };
+
+  offlinePayments.push(payment);
+  return payment;
+};
+
+/**
+ * Get pending offline payments that need to be synced
+ */
+export const getPendingOfflinePayments = (): OfflinePayment[] => {
+  return offlinePayments.filter(p => !p.synced);
+};
+
+/**
+ * Mark offline payment as synced
+ */
+export const markPaymentSynced = (paymentId: string): void => {
+  const payment = offlinePayments.find(p => p.id === paymentId);
+  if (payment) {
+    payment.synced = true;
+  }
+};
+
+/**
+ * Bracelet status types
+ */
+export type BraceletStatus = 'ACTIVE' | 'UNASSIGNED' | 'BLOCKED' | 'LOST' | 'REPLACED';
+
+/**
+ * Bracelet info interface
+ */
+export interface BraceletInfo {
+  uid: string;
+  status: BraceletStatus;
+  walletId?: string;
+  walletBalance: number;
+  userId?: string;
+  holderName?: string;
+  holderEmail?: string;
+  ticketType?: string;
+  activatedAt?: Date;
+  lastUsedAt?: Date;
+  transactionCount: number;
+  totalSpent: number;
+}
+
+/**
+ * Get bracelet info from UID
+ */
+export const getBraceletInfo = async (uid: string): Promise<BraceletInfo | null> => {
+  // This would typically make an API call
+  // For now, return mock data
+  return {
+    uid,
+    status: 'ACTIVE',
+    walletId: 'wallet-123',
+    walletBalance: 45.50,
+    holderName: 'Jean Dupont',
+    holderEmail: 'jean.dupont@email.com',
+    ticketType: 'Pass 3 Jours',
+    activatedAt: new Date(),
+    lastUsedAt: new Date(),
+    transactionCount: 12,
+    totalSpent: 85.30,
+  };
+};
