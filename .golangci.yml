@@ -1,0 +1,337 @@
+# golangci-lint configuration
+# https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 10m
+  issues-exit-code: 1
+  tests: true
+  skip-dirs:
+    - vendor
+    - .git
+    - node_modules
+  skip-files:
+    - ".*_test.go$"
+    - ".*_mock.go$"
+  modules-download-mode: readonly
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  uniq-by-line: true
+  sort-results: true
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    exclude-functions:
+      - io/ioutil.ReadFile
+      - io.Copy(*bytes.Buffer)
+      - (io.Closer).Close
+
+  govet:
+    check-shadowing: true
+    enable-all: true
+    disable:
+      - fieldalignment
+
+  gocyclo:
+    min-complexity: 15
+
+  gocognit:
+    min-complexity: 20
+
+  dupl:
+    threshold: 150
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport
+      - ifElseChain
+      - octalLiteral
+      - whyNoLint
+      - wrapperFunc
+      - hugeParam
+
+  goimports:
+    local-prefixes: github.com/mimi6060/festivals
+
+  golint:
+    min-confidence: 0.8
+
+  gomnd:
+    settings:
+      mnd:
+        checks:
+          - argument
+          - case
+          - condition
+          - return
+        ignored-numbers:
+          - '0'
+          - '1'
+          - '2'
+          - '10'
+          - '100'
+        ignored-functions:
+          - 'make'
+          - 'strconv.Parse*'
+          - 'time.*'
+
+  gomodguard:
+    blocked:
+      modules:
+        - github.com/pkg/errors:
+            recommendations:
+              - errors
+              - fmt
+            reason: "use standard library errors package"
+
+  gosec:
+    excludes:
+      - G104  # Audit errors not checked
+      - G304  # File path provided as taint input
+    config:
+      G306: "0644"
+
+  gosimple:
+    go: "1.22"
+    checks: ["all"]
+
+  govet:
+    check-shadowing: true
+    enable-all: true
+
+  lll:
+    line-length: 140
+    tab-width: 4
+
+  misspell:
+    locale: US
+    ignore-words:
+      - colour
+      - favour
+
+  nakedret:
+    max-func-lines: 30
+
+  nolintlint:
+    allow-leading-space: false
+    require-explanation: true
+    require-specific: true
+
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: true
+
+  revive:
+    ignore-generated-header: true
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+        disabled: true
+      - name: unreachable-code
+      - name: redefines-builtin-id
+
+  staticcheck:
+    go: "1.22"
+    checks: ["all", "-SA1019"]  # Exclude deprecation warnings
+
+  stylecheck:
+    go: "1.22"
+    checks: ["all", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022"]
+    dot-import-whitelist: []
+    initialisms: ["ACL", "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "ID", "IP", "JSON", "JWT", "QPS", "RAM", "RPC", "SLA", "SMTP", "SQL", "SSH", "TCP", "TLS", "TTL", "UDP", "UI", "GID", "UID", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XMPP", "XSRF", "XSS", "NFC"]
+    http-status-code-whitelist: []
+
+  tagliatelle:
+    case:
+      use-field-name: true
+      rules:
+        json: snake
+        yaml: snake
+        xml: camel
+        bson: camel
+        avro: snake
+
+  unparam:
+    check-exported: false
+
+  unused:
+    check-exported: false
+
+  whitespace:
+    multi-if: false
+    multi-func: false
+
+  wsl:
+    allow-assign-and-anything: false
+    allow-assign-and-call: true
+    allow-cuddle-declarations: false
+    allow-multiline-assign: true
+    allow-separated-leading-comment: false
+    allow-trailing-comment: false
+    force-case-trailing-whitespace: 0
+    force-err-cuddling: false
+    force-short-decl-cuddling: false
+    strict-append: true
+
+linters:
+  disable-all: true
+  enable:
+    # Enabled by default
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+
+    # Additional linters
+    - bodyclose
+    - contextcheck
+    - dogsled
+    - dupl
+    - durationcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - exportloopref
+    - forbidigo
+    - gochecknoinits
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - godot
+    - gofmt
+    - goimports
+    - gomnd
+    - gomoddirectives
+    - goprintffuncname
+    - gosec
+    - lll
+    - makezero
+    - misspell
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - stylecheck
+    - tagliatelle
+    - tenv
+    - tparallel
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
+
+  fast: false
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - dupl
+        - gomnd
+        - lll
+        - goconst
+        - gosec
+        - noctx
+
+    # Exclude some linters from running on generated files
+    - path: \.pb\.go
+      linters:
+        - all
+
+    # Exclude some rules from mock files
+    - path: mock_
+      linters:
+        - all
+
+    # Allow longer lines in some specific files
+    - path: internal/config/
+      linters:
+        - lll
+
+    # Exclude magic numbers in specific contexts
+    - path: internal/domain/
+      text: "mnd:"
+      linters:
+        - gomnd
+
+    # Exclude errcheck for deferred Close calls
+    - source: "defer .+\\.Close\\(\\)"
+      linters:
+        - errcheck
+
+    # Exclude errcheck for fmt.Print* functions
+    - source: "fmt\\.Print"
+      linters:
+        - errcheck
+
+  exclude-use-default: false
+  exclude:
+    - "G104: Errors unhandled"  # gosec
+    - "should have a package comment"
+    - "at least one file in a package should have a package comment"
+
+  max-issues-per-linter: 50
+  max-same-issues: 10
+  new: false
+  fix: false
+
+severity:
+  default-severity: warning
+  case-sensitive: false
+  rules:
+    - linters:
+        - gosec
+      severity: error
+    - linters:
+        - errcheck
+      severity: error
+    - linters:
+        - staticcheck
+      severity: error

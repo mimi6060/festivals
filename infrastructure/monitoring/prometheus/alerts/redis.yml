@@ -1,0 +1,200 @@
+# Redis Alert Rules for Festival Platform
+groups:
+  - name: redis.alerts
+    rules:
+      # Redis Down
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Redis is down"
+          description: "Redis server is not responding"
+          runbook_url: "https://docs.festivals.io/runbooks/redis-down"
+
+      # High Memory Usage
+      - alert: RedisHighMemoryUsage
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Redis high memory usage"
+          description: "Redis memory usage is at {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook_url: "https://docs.festivals.io/runbooks/redis-memory"
+
+      # Critical Memory Usage
+      - alert: RedisCriticalMemoryUsage
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Redis critical memory usage"
+          description: "Redis memory usage is at {{ $value | humanizePercentage }} (threshold: 95%)"
+          runbook_url: "https://docs.festivals.io/runbooks/redis-memory"
+
+      # Too Many Connections
+      - alert: RedisTooManyConnections
+        expr: redis_connected_clients > 500
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Redis too many connections"
+          description: "Redis has {{ $value }} connected clients (threshold: 500)"
+          runbook_url: "https://docs.festivals.io/runbooks/redis-connections"
+
+      # Connection Rejected
+      - alert: RedisConnectionsRejected
+        expr: increase(redis_rejected_connections_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Redis connections being rejected"
+          description: "{{ $value }} connections rejected in last 5 minutes"
+          runbook_url: "https://docs.festivals.io/runbooks/redis-connections"
+
+      # Low Hit Rate (Cache not effective)
+      - alert: RedisLowHitRate
+        expr: |
+          (
+            rate(redis_keyspace_hits_total[5m])
+            /
+            (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))
+          ) < 0.8
+        for: 15m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Redis cache hit rate is low"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook_url: "https://docs.festivals.io/runbooks/redis-hit-rate"
+
+      # Application-level Cache Hit Rate
+      - alert: CacheLowHitRate
+        expr: festivals_cache_hit_ratio < 0.7
+        for: 15m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Application cache hit rate is low"
+          description: "Cache hit rate for {{ $labels.cache_name }} is {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.festivals.io/runbooks/cache-hit-rate"
+
+      # Keys Eviction Rate High
+      - alert: RedisHighEvictionRate
+        expr: rate(redis_evicted_keys_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Redis evicting keys at high rate"
+          description: "{{ $value | humanize }} keys being evicted per second"
+          runbook_url: "https://docs.festivals.io/runbooks/redis-eviction"
+
+      # Redis Replication Broken
+      - alert: RedisReplicationBroken
+        expr: |
+          delta(redis_connected_slaves[1m]) < 0
+        for: 1m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Redis replication broken"
+          description: "Redis slave disconnected from master"
+          runbook_url: "https://docs.festivals.io/runbooks/redis-replication"
+
+      # Redis Replication Lag
+      - alert: RedisReplicationLag
+        expr: redis_replication_backlog_bytes > 10485760
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Redis replication lag detected"
+          description: "Replication backlog is {{ $value | humanize1024 }}B"
+          runbook_url: "https://docs.festivals.io/runbooks/redis-replication"
+
+      # Slow Commands
+      - alert: RedisSlowCommands
+        expr: rate(redis_slowlog_length[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Redis slow commands detected"
+          description: "{{ $value }} slow commands per second"
+          runbook_url: "https://docs.festivals.io/runbooks/redis-slow-commands"
+
+      # Cache Operation Errors
+      - alert: CacheHighErrorRate
+        expr: |
+          (
+            sum(rate(festivals_cache_operations_total{status="error"}[5m])) by (cache_name, operation)
+            /
+            sum(rate(festivals_cache_operations_total[5m])) by (cache_name, operation)
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High cache operation error rate"
+          description: "Error rate for {{ $labels.cache_name }} {{ $labels.operation }} is {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.festivals.io/runbooks/cache-errors"
+
+      # Cache Latency
+      - alert: CacheHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(festivals_cache_operation_duration_seconds_bucket[5m])) by (le, cache_name, operation)
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High cache operation latency"
+          description: "P95 latency for {{ $labels.cache_name }} {{ $labels.operation }} is {{ $value | humanizeDuration }}"
+          runbook_url: "https://docs.festivals.io/runbooks/cache-latency"
+
+  - name: redis.recording_rules
+    interval: 30s
+    rules:
+      # Pre-compute memory usage
+      - record: festivals:redis:memory_usage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes
+
+      # Pre-compute hit rate
+      - record: festivals:redis:hit_rate_5m
+        expr: |
+          rate(redis_keyspace_hits_total[5m])
+          /
+          (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))
+
+      # Pre-compute operations per second
+      - record: festivals:redis:ops_per_second
+        expr: rate(redis_commands_processed_total[1m])
+
+      # Application cache hit rate
+      - record: festivals:cache:hit_rate_5m
+        expr: |
+          sum(rate(festivals_cache_hits_total[5m])) by (cache_name)
+          /
+          (sum(rate(festivals_cache_hits_total[5m])) by (cache_name) + sum(rate(festivals_cache_misses_total[5m])) by (cache_name))

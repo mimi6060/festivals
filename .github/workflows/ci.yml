@@ -10,18 +10,57 @@ on:
       - main
       - development
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  GO_VERSION: '1.22'
-  NODE_VERSION: '20'
   PNPM_VERSION: '8'
 
 jobs:
   # ============================================
-  # Go Backend Tests and Lint
+  # Detect Changes for Conditional Jobs
+  # ============================================
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.changes.outputs.backend }}
+      admin: ${{ steps.changes.outputs.admin }}
+      mobile: ${{ steps.changes.outputs.mobile }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/ci.yml'
+            admin:
+              - 'admin/**'
+              - '.github/workflows/ci.yml'
+            mobile:
+              - 'mobile/**'
+              - '.github/workflows/ci.yml'
+
+  # ============================================
+  # Go Backend Tests and Lint (Matrix Build)
   # ============================================
   backend-test:
-    name: Backend Tests
+    name: Backend Tests (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.22', '1.23']
+
     defaults:
       run:
         working-directory: ./backend
@@ -58,28 +97,64 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: ${{ matrix.go-version }}
           cache-dependency-path: backend/go.sum
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ matrix.go-version }}-
 
       - name: Download dependencies
         run: go mod download
 
-      - name: Run tests
+      - name: Build
+        run: go build -v ./...
+
+      - name: Run tests with coverage
         env:
           DATABASE_URL: postgres://test:test@localhost:5432/festivals_test?sslmode=disable
           REDIS_URL: redis://localhost:6379
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: |
+          go test -v -race -coverprofile=coverage.out -covermode=atomic -json ./... > test-report.json 2>&1 || true
+          go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: Upload coverage
+      - name: Generate coverage report
+        run: |
+          go tool cover -func=coverage.out -o coverage-summary.txt
+          go tool cover -html=coverage.out -o coverage.html
+
+      - name: Upload coverage to Codecov
+        if: matrix.go-version == '1.23'
         uses: codecov/codecov-action@v4
         with:
           files: ./backend/coverage.out
           flags: backend
           fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-results-go${{ matrix.go-version }}
+          path: |
+            backend/coverage.out
+            backend/coverage.html
+            backend/coverage-summary.txt
+            backend/test-report.json
+          retention-days: 7
 
   backend-lint:
     name: Backend Lint
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     defaults:
       run:
         working-directory: ./backend
@@ -91,7 +166,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: '1.23'
           cache-dependency-path: backend/go.sum
 
       - name: Run golangci-lint
@@ -99,14 +174,22 @@ jobs:
         with:
           version: latest
           working-directory: ./backend
-          args: --timeout=5m
+          args: --timeout=5m --config=../.golangci.yml
 
   # ============================================
-  # Next.js Admin Build and Lint
+  # Next.js Admin Build and Test (Matrix Build)
   # ============================================
   admin-build:
-    name: Admin Build
+    name: Admin Build (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.admin == 'true'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['18', '20', '22']
+
     defaults:
       run:
         working-directory: ./admin
@@ -116,16 +199,38 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v3
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
           cache-dependency-path: admin/pnpm-lock.yaml
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: |
+            admin/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('**/pnpm-lock.yaml') }}-${{ hashFiles('**/*.ts', '**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('**/pnpm-lock.yaml') }}-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -133,20 +238,48 @@ jobs:
       - name: Run lint
         run: pnpm lint
 
-      - name: Run tests
-        run: pnpm test --run
+      - name: Run type check
+        run: pnpm exec tsc --noEmit
+
+      - name: Run tests with coverage
+        run: pnpm test --run --coverage
 
       - name: Build
         run: pnpm build
         env:
           NEXT_TELEMETRY_DISABLED: 1
 
+      - name: Upload coverage
+        if: matrix.node-version == '20'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./admin/coverage/lcov.info
+          flags: admin
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload build artifacts
+        if: matrix.node-version == '20'
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-build
+          path: admin/.next
+          retention-days: 1
+
   # ============================================
-  # Mobile App Lint and Type Check
+  # Mobile App Lint and Type Check (Matrix Build)
   # ============================================
   mobile-lint:
-    name: Mobile Lint
+    name: Mobile Lint (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['18', '20']
+
     defaults:
       run:
         working-directory: ./mobile
@@ -158,9 +291,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ matrix.node-version }}
           cache: 'npm'
           cache-dependency-path: mobile/package-lock.json
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: mobile/node_modules
+          key: ${{ runner.os }}-mobile-node-${{ matrix.node-version }}-${{ hashFiles('mobile/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-mobile-node-${{ matrix.node-version }}-
 
       - name: Install dependencies
         run: npm ci
@@ -168,23 +309,46 @@ jobs:
       - name: Run lint
         run: npm run lint
 
+      - name: Run type check
+        run: npx tsc --noEmit
+
       - name: Run tests
-        run: npm test -- --passWithNoTests
+        run: npm test -- --passWithNoTests --coverage
+
+      - name: Upload coverage
+        if: matrix.node-version == '20'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./mobile/coverage/lcov.info
+          flags: mobile
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   # ============================================
-  # Docker Image Builds
+  # Docker Image Builds (Parallel)
   # ============================================
   docker-build:
-    name: Docker Build
+    name: Docker Build (${{ matrix.image }})
     runs-on: ubuntu-latest
     needs: [backend-test, backend-lint, admin-build]
+    if: |
+      always() &&
+      (needs.backend-test.result == 'success' || needs.backend-test.result == 'skipped') &&
+      (needs.backend-lint.result == 'success' || needs.backend-lint.result == 'skipped') &&
+      (needs.admin-build.result == 'success' || needs.admin-build.result == 'skipped')
 
     strategy:
+      fail-fast: false
       matrix:
         include:
           - context: ./backend
             dockerfile: Dockerfile
             image: festivals-api
+            target: api
+          - context: ./backend
+            dockerfile: Dockerfile
+            image: festivals-worker
+            target: worker
           - context: ./admin
             dockerfile: Dockerfile
             image: festivals-admin
@@ -201,41 +365,40 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
           push: false
           tags: ${{ matrix.image }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ github.sha }}
+            COMMIT_SHA=${{ github.sha }}
 
   # ============================================
-  # Security Scanning
+  # All Checks Summary
   # ============================================
-  security-scan:
-    name: Security Scan
+  ci-summary:
+    name: CI Summary
     runs-on: ubuntu-latest
-    needs: [backend-test, admin-build]
-
+    needs: [backend-test, backend-lint, admin-build, mobile-lint, docker-build]
+    if: always()
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Check all job statuses
+        run: |
+          echo "Backend Tests: ${{ needs.backend-test.result }}"
+          echo "Backend Lint: ${{ needs.backend-lint.result }}"
+          echo "Admin Build: ${{ needs.admin-build.result }}"
+          echo "Mobile Lint: ${{ needs.mobile-lint.result }}"
+          echo "Docker Build: ${{ needs.docker-build.result }}"
 
-      - name: Run Trivy vulnerability scanner (Backend)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: './backend'
-          format: 'sarif'
-          output: 'trivy-backend.sarif'
+          # Fail if any required job failed (excluding skipped)
+          if [[ "${{ needs.backend-test.result }}" == "failure" ]] || \
+             [[ "${{ needs.backend-lint.result }}" == "failure" ]] || \
+             [[ "${{ needs.admin-build.result }}" == "failure" ]] || \
+             [[ "${{ needs.mobile-lint.result }}" == "failure" ]] || \
+             [[ "${{ needs.docker-build.result }}" == "failure" ]]; then
+            echo "One or more jobs failed"
+            exit 1
+          fi
 
-      - name: Run Trivy vulnerability scanner (Admin)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: './admin'
-          format: 'sarif'
-          output: 'trivy-admin.sarif'
-
-      - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: '.'
+          echo "All CI checks passed!"

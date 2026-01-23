@@ -1,0 +1,134 @@
+# CODEOWNERS file for Festivals repository
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Each line is a file pattern followed by one or more owners.
+# Order matters: later patterns take precedence over earlier ones.
+# The last matching pattern has the most precedence.
+
+# Default owners for everything in the repo
+* @festivals/maintainers
+
+# ============================================
+# Backend (Go)
+# ============================================
+/backend/ @festivals/backend-team
+*.go @festivals/backend-team
+
+# Backend - API
+/backend/cmd/api/ @festivals/backend-team
+/backend/internal/middleware/ @festivals/backend-team
+
+# Backend - Worker
+/backend/cmd/worker/ @festivals/backend-team
+
+# Backend - Domain
+/backend/internal/domain/ @festivals/backend-team
+
+# Backend - Infrastructure
+/backend/internal/infrastructure/ @festivals/backend-team @festivals/devops-team
+
+# Backend - Configuration
+/backend/internal/config/ @festivals/backend-team @festivals/devops-team
+
+# ============================================
+# Admin Dashboard (Next.js)
+# ============================================
+/admin/ @festivals/frontend-team
+/admin/src/ @festivals/frontend-team
+
+# Admin - Components
+/admin/src/components/ @festivals/frontend-team
+
+# Admin - Pages/Routes
+/admin/src/app/ @festivals/frontend-team
+
+# ============================================
+# Mobile App (React Native)
+# ============================================
+/mobile/ @festivals/mobile-team
+/mobile/app/ @festivals/mobile-team
+/mobile/components/ @festivals/mobile-team
+
+# Mobile - Native
+*.swift @festivals/mobile-team @festivals/ios-team
+*.kotlin @festivals/mobile-team @festivals/android-team
+*.java @festivals/mobile-team @festivals/android-team
+
+# ============================================
+# DevOps & Infrastructure
+# ============================================
+/k8s/ @festivals/devops-team
+/.github/workflows/ @festivals/devops-team
+/docker-compose*.yml @festivals/devops-team
+/scripts/ @festivals/devops-team
+Dockerfile* @festivals/devops-team
+Makefile @festivals/devops-team
+
+# Terraform/Infrastructure as Code
+/terraform/ @festivals/devops-team
+*.tf @festivals/devops-team
+*.tfvars @festivals/devops-team
+
+# ============================================
+# Security-Sensitive Files
+# ============================================
+# Authentication & Authorization
+/backend/internal/domain/auth/ @festivals/security-team @festivals/backend-team
+/backend/internal/domain/security/ @festivals/security-team @festivals/backend-team
+
+# Middleware (CORS, Auth, Rate Limiting)
+/backend/middleware/ @festivals/security-team @festivals/backend-team
+
+# Security configuration
+*.env* @festivals/security-team
+**/secrets/ @festivals/security-team
+**/.secrets/ @festivals/security-team
+
+# ============================================
+# Configuration Files
+# ============================================
+# CI/CD
+/.github/ @festivals/devops-team
+/.golangci.yml @festivals/backend-team @festivals/devops-team
+/.eslintrc* @festivals/frontend-team
+/.prettierrc* @festivals/frontend-team
+/commitlint.config.js @festivals/devops-team
+
+# Package management
+/backend/go.mod @festivals/backend-team
+/backend/go.sum @festivals/backend-team
+/admin/package.json @festivals/frontend-team
+/admin/pnpm-lock.yaml @festivals/frontend-team
+/mobile/package.json @festivals/mobile-team
+/mobile/package-lock.json @festivals/mobile-team
+
+# ============================================
+# Documentation
+# ============================================
+/docs/ @festivals/maintainers
+*.md @festivals/maintainers
+LICENSE @festivals/maintainers
+
+# API Documentation
+/backend/docs/ @festivals/backend-team @festivals/maintainers
+**/swagger.* @festivals/backend-team
+**/openapi.* @festivals/backend-team
+
+# ============================================
+# Testing
+# ============================================
+/tests/ @festivals/qa-team
+*_test.go @festivals/backend-team @festivals/qa-team
+*.test.ts @festivals/frontend-team @festivals/qa-team
+*.test.tsx @festivals/frontend-team @festivals/qa-team
+*.spec.ts @festivals/frontend-team @festivals/qa-team
+*.spec.tsx @festivals/frontend-team @festivals/qa-team
+/tests/load/ @festivals/devops-team @festivals/qa-team
+/tests/e2e/ @festivals/qa-team
+
+# ============================================
+# Database
+# ============================================
+/backend/internal/infrastructure/database/ @festivals/backend-team @festivals/dba-team
+**/migrations/ @festivals/backend-team @festivals/dba-team
+*.sql @festivals/backend-team @festivals/dba-team

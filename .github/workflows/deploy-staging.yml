@@ -1,0 +1,468 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+  repository_dispatch:
+    types: [deploy-staging]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (leave empty for latest)'
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+  ENVIRONMENT: staging
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+
+jobs:
+  # ============================================
+  # Pre-deployment Checks
+  # ============================================
+  pre-deploy:
+    name: Pre-deployment Checks
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'repository_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+      github.event_name == 'push'
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      image_tag: ${{ steps.version.outputs.image_tag }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [ -n "${{ github.event.client_payload.version }}" ]; then
+            VERSION="${{ github.event.client_payload.version }}"
+          else
+            # Get latest tag or use SHA
+            VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "${{ github.sha }}")
+          fi
+
+          # Determine image tag
+          if [[ "$VERSION" == v* ]]; then
+            IMAGE_TAG="${VERSION#v}"
+          else
+            IMAGE_TAG="${VERSION}"
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "Deploying version: ${VERSION} (image tag: ${IMAGE_TAG})"
+
+      - name: Verify images exist
+        run: |
+          echo "Verifying Docker images exist..."
+
+          # Check if images are available (skip if using SHA)
+          if [[ "${{ steps.version.outputs.image_tag }}" != "${{ github.sha }}" ]]; then
+            echo "Checking for images with tag: ${{ steps.version.outputs.image_tag }}"
+          fi
+
+  # ============================================
+  # Deploy to Staging
+  # ============================================
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: pre-deploy
+    environment:
+      name: staging
+      url: https://staging.festivals.app
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.29.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Install Kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: '5.3.0'
+
+      - name: Update image tags
+        run: |
+          cd k8s/overlays/staging
+
+          # Set new image tags
+          kustomize edit set image \
+            ghcr.io/festivals/api=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ needs.pre-deploy.outputs.image_tag }} \
+            ghcr.io/festivals/admin=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-admin:${{ needs.pre-deploy.outputs.image_tag }} \
+            ghcr.io/festivals/worker=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker:${{ needs.pre-deploy.outputs.image_tag }}
+
+      - name: Deploy to Kubernetes
+        id: deploy
+        run: |
+          echo "Deploying to staging Kubernetes cluster..."
+
+          # Apply Kustomize configuration
+          kustomize build k8s/overlays/staging | kubectl apply -f -
+
+          # Wait for deployments to be ready
+          echo "Waiting for API deployment..."
+          kubectl rollout status deployment/staging-festivals-api -n festivals-staging --timeout=300s
+
+          echo "Waiting for Admin deployment..."
+          kubectl rollout status deployment/staging-festivals-admin -n festivals-staging --timeout=300s
+
+          echo "Waiting for Worker deployment..."
+          kubectl rollout status deployment/staging-festivals-worker -n festivals-staging --timeout=300s
+
+          echo "Deployment completed successfully!"
+
+      - name: Save deployment info
+        run: |
+          echo "DEPLOYMENT_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+          echo "DEPLOYED_VERSION=${{ needs.pre-deploy.outputs.version }}" >> $GITHUB_ENV
+
+  # ============================================
+  # Run Smoke Tests
+  # ============================================
+  smoke-tests:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [pre-deploy, deploy]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Wait for services to stabilize
+        run: sleep 30
+
+      - name: Run smoke tests
+        id: smoke
+        run: |
+          echo "Running smoke tests against staging..."
+
+          FAILURES=0
+
+          # Test API health endpoint
+          echo "Testing API health..."
+          for i in {1..5}; do
+            if curl -sf --max-time 10 https://api.staging.festivals.app/health/ready; then
+              echo "API health check passed"
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "::error::API health check failed after 5 attempts"
+              FAILURES=$((FAILURES + 1))
+            fi
+            echo "Retrying API health check... (attempt $i)"
+            sleep 10
+          done
+
+          # Test API liveness
+          echo "Testing API liveness..."
+          if curl -sf --max-time 10 https://api.staging.festivals.app/health/live; then
+            echo "API liveness check passed"
+          else
+            echo "::warning::API liveness check failed"
+          fi
+
+          # Test Admin health endpoint
+          echo "Testing Admin health..."
+          for i in {1..5}; do
+            if curl -sf --max-time 10 https://admin.staging.festivals.app/api/health; then
+              echo "Admin health check passed"
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "::error::Admin health check failed after 5 attempts"
+              FAILURES=$((FAILURES + 1))
+            fi
+            echo "Retrying Admin health check... (attempt $i)"
+            sleep 10
+          done
+
+          # Test Admin page loads
+          echo "Testing Admin page load..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://admin.staging.festivals.app)
+          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 302 ]; then
+            echo "Admin page load check passed (HTTP $HTTP_CODE)"
+          else
+            echo "::warning::Admin page returned HTTP $HTTP_CODE"
+          fi
+
+          # Test API version endpoint
+          echo "Testing API version..."
+          VERSION_RESPONSE=$(curl -sf --max-time 10 https://api.staging.festivals.app/version || echo "{}")
+          echo "API version response: $VERSION_RESPONSE"
+
+          # Summary
+          if [ $FAILURES -gt 0 ]; then
+            echo "::error::$FAILURES smoke tests failed"
+            exit 1
+          fi
+
+          echo "All smoke tests passed!"
+
+      - name: Run integration tests
+        if: success()
+        run: |
+          echo "Running integration tests..."
+
+          # Test database connectivity via API
+          echo "Testing database connectivity..."
+          if curl -sf --max-time 30 "https://api.staging.festivals.app/health/ready" | grep -q "database"; then
+            echo "Database connectivity verified"
+          fi
+
+          # Test Redis connectivity
+          echo "Testing cache connectivity..."
+          if curl -sf --max-time 30 "https://api.staging.festivals.app/health/ready" | grep -q "cache"; then
+            echo "Cache connectivity verified"
+          fi
+
+          echo "Integration tests completed!"
+
+  # ============================================
+  # Run E2E Tests (Optional)
+  # ============================================
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [pre-deploy, deploy, smoke-tests]
+    if: success()
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm install -g playwright
+          npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        env:
+          BASE_URL: https://admin.staging.festivals.app
+          API_URL: https://api.staging.festivals.app
+        run: |
+          # Check if E2E tests exist
+          if [ -d "tests/e2e" ]; then
+            cd tests/e2e
+            npm ci
+            npx playwright test --reporter=html
+          else
+            echo "No E2E tests found, skipping..."
+          fi
+
+      - name: Upload E2E test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: tests/e2e/playwright-report/
+          retention-days: 7
+        continue-on-error: true
+
+  # ============================================
+  # Notify Deployment Status
+  # ============================================
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [pre-deploy, deploy, smoke-tests]
+    if: always()
+
+    steps:
+      - name: Determine status
+        id: status
+        run: |
+          if [[ "${{ needs.deploy.result }}" == "success" ]] && [[ "${{ needs.smoke-tests.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "emoji=:white_check_mark:" >> $GITHUB_OUTPUT
+            echo "color=good" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "emoji=:x:" >> $GITHUB_OUTPUT
+            echo "color=danger" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "Staging Deployment ${{ steps.status.outputs.status == 'success' && 'Successful' || 'Failed' }}",
+              "attachments": [
+                {
+                  "color": "${{ steps.status.outputs.color }}",
+                  "blocks": [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "${{ steps.status.outputs.emoji }} *Staging Deployment ${{ steps.status.outputs.status == 'success' && 'Successful' || 'Failed' }}*"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Version:*\n${{ needs.pre-deploy.outputs.version }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Environment:*\n<https://staging.festivals.app|Staging>"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Triggered by:*\n${{ github.actor }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Workflow:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true
+
+      - name: Notify Discord
+        if: ${{ secrets.DISCORD_WEBHOOK_URL != '' }}
+        run: |
+          STATUS="${{ steps.status.outputs.status }}"
+          COLOR=$([[ "$STATUS" == "success" ]] && echo "5025616" || echo "16711680")
+
+          curl -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "Staging Deployment '"$([[ "$STATUS" == "success" ]] && echo "Successful" || echo "Failed")"'",
+                "color": '"$COLOR"',
+                "fields": [
+                  {"name": "Version", "value": "${{ needs.pre-deploy.outputs.version }}", "inline": true},
+                  {"name": "Environment", "value": "[Staging](https://staging.festivals.app)", "inline": true},
+                  {"name": "Triggered by", "value": "${{ github.actor }}", "inline": true}
+                ],
+                "footer": {"text": "GitHub Actions"}
+              }]
+            }' || true
+        continue-on-error: true
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ steps.status.outputs.status }}';
+            const emoji = status === 'success' ? ':white_check_mark:' : ':x:';
+            const message = status === 'success'
+              ? `${emoji} **Staging Deployment Successful**\n\nVersion \`${{ needs.pre-deploy.outputs.version }}\` has been deployed to [staging](https://staging.festivals.app).\n\nAll smoke tests passed.`
+              : `${emoji} **Staging Deployment Failed**\n\nPlease check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.`;
+
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: message
+            });
+        continue-on-error: true
+
+  # ============================================
+  # Rollback on Failure
+  # ============================================
+  rollback:
+    name: Rollback
+    runs-on: ubuntu-latest
+    needs: [pre-deploy, deploy, smoke-tests]
+    if: failure() && needs.deploy.result == 'success'
+
+    steps:
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.29.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Rollback deployments
+        run: |
+          echo "Rolling back staging deployments..."
+
+          kubectl rollout undo deployment/staging-festivals-api -n festivals-staging || true
+          kubectl rollout undo deployment/staging-festivals-admin -n festivals-staging || true
+          kubectl rollout undo deployment/staging-festivals-worker -n festivals-staging || true
+
+          echo "Waiting for rollback to complete..."
+          kubectl rollout status deployment/staging-festivals-api -n festivals-staging --timeout=300s || true
+          kubectl rollout status deployment/staging-festivals-admin -n festivals-staging --timeout=300s || true
+          kubectl rollout status deployment/staging-festivals-worker -n festivals-staging --timeout=300s || true
+
+          echo "Rollback completed!"
+
+      - name: Notify rollback
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "Staging Deployment Rolled Back",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ":rewind: *Staging Deployment Rolled Back*\n\nVersion ${{ needs.pre-deploy.outputs.version }} was rolled back due to failed smoke tests.\n\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true

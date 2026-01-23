@@ -1,20 +1,124 @@
 {
-  "http_req_duration": {
-    "p95": 200,
-    "p99": 500,
-    "avg": 100
+  "slos": {
+    "description": "Service Level Objectives for Festival Platform",
+    "version": "2.0.0",
+
+    "payments": {
+      "description": "Payment processing SLOs - Critical path",
+      "latency": {
+        "p50": 80,
+        "p95": 150,
+        "p99": 200,
+        "max": 500
+      },
+      "availability": {
+        "target": 99.9,
+        "minimum": 99.5
+      },
+      "error_rate": {
+        "target": 0.001,
+        "maximum": 0.005
+      },
+      "throughput": {
+        "minimum_tps": 100,
+        "target_tps": 500
+      }
+    },
+
+    "wallet": {
+      "description": "Wallet operations SLOs",
+      "balance_check": {
+        "p50": 30,
+        "p95": 50,
+        "p99": 100
+      },
+      "topup": {
+        "p50": 150,
+        "p95": 300,
+        "p99": 500
+      },
+      "transaction_history": {
+        "p50": 100,
+        "p95": 200,
+        "p99": 300
+      }
+    },
+
+    "entry_scan": {
+      "description": "Entry gate scanning SLOs - High volume critical",
+      "latency": {
+        "p50": 50,
+        "p95": 100,
+        "p99": 200
+      },
+      "success_rate": {
+        "target": 99.0,
+        "minimum": 98.0
+      },
+      "throughput": {
+        "scans_per_gate_per_minute": 60,
+        "total_gates_supported": 10
+      }
+    },
+
+    "sync": {
+      "description": "Device synchronization SLOs",
+      "delta_sync": {
+        "p50": 100,
+        "p95": 300,
+        "p99": 500
+      },
+      "full_sync": {
+        "p50": 500,
+        "p95": 1000,
+        "p99": 2000
+      },
+      "conflict_resolution": {
+        "p95": 1000
+      }
+    },
+
+    "api_general": {
+      "description": "General API endpoint SLOs",
+      "read_operations": {
+        "p50": 50,
+        "p95": 100,
+        "p99": 200
+      },
+      "write_operations": {
+        "p50": 100,
+        "p95": 200,
+        "p99": 500
+      },
+      "search": {
+        "p50": 100,
+        "p95": 200,
+        "p99": 500
+      }
+    }
   },
-  "http_req_failed": {
-    "rate": 0.001
+
+  "thresholds": {
+    "http_req_duration": {
+      "p50": 100,
+      "p95": 200,
+      "p99": 500,
+      "avg": 100
+    },
+    "http_req_failed": {
+      "rate": 0.01
+    },
+    "http_reqs": {
+      "rate": 1000
+    },
+    "checks": {
+      "rate": 0.99
+    }
   },
-  "http_reqs": {
-    "rate": 1000
-  },
-  "checks": {
-    "rate": 0.99
-  },
+
   "scenarios": {
     "smoke": {
+      "description": "Quick validation test",
       "vus": 10,
       "duration": "1m",
       "thresholds": {
@@ -23,6 +127,7 @@
       }
     },
     "load": {
+      "description": "Normal load test",
       "vus": 100,
       "duration": "10m",
       "thresholds": {
@@ -31,6 +136,7 @@
       }
     },
     "stress": {
+      "description": "Stress test to find limits",
       "maxVus": 500,
       "duration": "15m",
       "thresholds": {
@@ -39,6 +145,7 @@
       }
     },
     "spike": {
+      "description": "Sudden traffic spike test",
       "maxVus": 1000,
       "thresholds": {
         "http_req_duration": { "p95": 1000 },
@@ -46,34 +153,183 @@
       }
     },
     "soak": {
+      "description": "Long duration stability test",
       "vus": 50,
       "duration": "2h",
       "thresholds": {
         "http_req_duration": { "p95": 200 },
         "http_req_failed": { "rate": 0.001 }
       }
+    },
+    "wallet_load": {
+      "description": "Wallet-specific load test",
+      "thresholds": {
+        "topup_latency": { "p50": 150, "p95": 300, "p99": 500 },
+        "payment_latency": { "p50": 80, "p95": 150, "p99": 200 },
+        "balance_check_latency": { "p50": 30, "p95": 50, "p99": 100 },
+        "payment_success": { "rate": 0.99 },
+        "topup_success": { "rate": 0.98 }
+      }
+    },
+    "transaction_load": {
+      "description": "Transaction processing load test",
+      "thresholds": {
+        "transaction_latency": { "p50": 100, "p95": 200, "p99": 300 },
+        "transaction_success": { "rate": 0.98 },
+        "atomicity_violations": { "count": 0 },
+        "double_charges": { "count": 0 },
+        "rollback_latency": { "p95": 500 }
+      }
+    },
+    "api_stress": {
+      "description": "API stress test",
+      "thresholds": {
+        "http_req_duration": { "p95": 1000, "p99": 2000 },
+        "rate_limit_hits": { "count_min": 1 },
+        "server_errors": { "rate": 0.05 },
+        "recovery_time": { "p95": 60000 }
+      }
+    },
+    "sync_load": {
+      "description": "Synchronization load test",
+      "thresholds": {
+        "sync_latency": { "p50": 200, "p95": 500, "p99": 1000 },
+        "delta_sync_latency": { "p50": 100, "p95": 300, "p99": 500 },
+        "conflict_resolution_time": { "p95": 1000 },
+        "sync_success": { "rate": 0.98 }
+      }
+    },
+    "festival_day": {
+      "description": "Full festival day simulation",
+      "duration": "16m",
+      "thresholds": {
+        "http_req_duration": { "p95": 300, "p99": 500 },
+        "http_req_failed": { "rate": 0.02 },
+        "entry_scans": { "count_min": 500 }
+      }
+    },
+    "peak_hour": {
+      "description": "Peak hour simulation",
+      "thresholds": {
+        "payment_p50": { "p50": 100 },
+        "payment_p95": { "p50": 200 },
+        "payment_p99": { "p50": 500 },
+        "tx_success": { "rate": 0.95 },
+        "queue_wait_time": { "p95": 5000 }
+      }
+    },
+    "entry_rush": {
+      "description": "Entry gate rush simulation",
+      "thresholds": {
+        "scan_latency": { "p50": 50, "p95": 100, "p99": 200 },
+        "scan_success": { "rate": 0.98 },
+        "gate_throughput": { "count_min": 3000 },
+        "wristband_activation_latency": { "p95": 500 }
+      }
     }
   },
+
   "api_endpoints": {
     "auth": {
       "login": { "p95": 300 },
       "register": { "p95": 500 },
-      "refresh": { "p95": 100 }
+      "refresh": { "p95": 100 },
+      "logout": { "p95": 100 }
     },
     "tickets": {
       "list": { "p95": 150 },
+      "get": { "p95": 100 },
       "purchase": { "p95": 500 },
-      "validate": { "p95": 100 }
+      "validate": { "p95": 100 },
+      "scan": { "p95": 100 }
     },
     "wallet": {
-      "balance": { "p95": 100 },
+      "balance": { "p95": 50 },
       "topup": { "p95": 300 },
-      "payment": { "p95": 200 }
+      "payment": { "p95": 200 },
+      "transactions": { "p95": 200 },
+      "qr_generate": { "p95": 100 },
+      "qr_validate": { "p95": 100 }
     },
     "festivals": {
       "list": { "p95": 150 },
-      "details": { "p95": 200 },
-      "lineup": { "p95": 200 }
+      "get": { "p95": 200 },
+      "lineup": { "p95": 200 },
+      "artists": { "p95": 200 },
+      "map": { "p95": 300 },
+      "search": { "p95": 300 }
+    },
+    "sync": {
+      "delta": { "p95": 300 },
+      "full": { "p95": 1000 },
+      "push": { "p95": 200 }
+    },
+    "nfc": {
+      "activate": { "p95": 500 },
+      "read": { "p95": 100 },
+      "write": { "p95": 200 }
+    }
+  },
+
+  "alerts": {
+    "critical": {
+      "description": "Critical alerts requiring immediate attention",
+      "payment_p99_exceeded": {
+        "metric": "payment_latency",
+        "threshold": 500,
+        "percentile": "p99"
+      },
+      "payment_error_rate": {
+        "metric": "payment_success",
+        "threshold": 0.95,
+        "type": "below"
+      },
+      "atomicity_violation": {
+        "metric": "atomicity_violations",
+        "threshold": 1,
+        "type": "count"
+      }
+    },
+    "warning": {
+      "description": "Warning alerts for monitoring",
+      "payment_p95_exceeded": {
+        "metric": "payment_latency",
+        "threshold": 200,
+        "percentile": "p95"
+      },
+      "scan_latency_high": {
+        "metric": "scan_latency",
+        "threshold": 150,
+        "percentile": "p95"
+      },
+      "error_rate_elevated": {
+        "metric": "errors",
+        "threshold": 0.02,
+        "type": "rate"
+      }
+    }
+  },
+
+  "capacity_targets": {
+    "concurrent_users": {
+      "standard": 1000,
+      "peak": 5000,
+      "maximum": 10000
+    },
+    "transactions_per_second": {
+      "standard": 100,
+      "peak": 500,
+      "maximum": 1000
+    },
+    "scans_per_minute_per_gate": {
+      "standard": 40,
+      "peak": 60,
+      "maximum": 100
+    },
+    "syncs_per_second": {
+      "standard": 50,
+      "peak": 200,
+      "maximum": 500
     }
   }
 }

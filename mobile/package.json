@@ -17,7 +17,20 @@
     "e2e:test:ios:release": "detox test --configuration ios.sim.release",
     "e2e:test:android": "detox test --configuration android.emu.debug",
     "e2e:test:android:release": "detox test --configuration android.emu.release",
-    "e2e:clean": "detox clean-framework-cache && detox build-framework-cache"
+    "e2e:test:ios:auth": "detox test --configuration ios.sim.debug e2e/tests/auth.test.ts",
+    "e2e:test:ios:wallet": "detox test --configuration ios.sim.debug e2e/tests/wallet.test.ts",
+    "e2e:test:ios:payment": "detox test --configuration ios.sim.debug e2e/tests/payment.test.ts",
+    "e2e:test:ios:scanner": "detox test --configuration ios.sim.debug e2e/tests/scanner.test.ts",
+    "e2e:test:ios:program": "detox test --configuration ios.sim.debug e2e/tests/program.test.ts",
+    "e2e:test:ios:offline": "detox test --configuration ios.sim.debug e2e/tests/offline.test.ts",
+    "e2e:test:android:auth": "detox test --configuration android.emu.debug e2e/tests/auth.test.ts",
+    "e2e:test:android:wallet": "detox test --configuration android.emu.debug e2e/tests/wallet.test.ts",
+    "e2e:test:android:payment": "detox test --configuration android.emu.debug e2e/tests/payment.test.ts",
+    "e2e:test:android:scanner": "detox test --configuration android.emu.debug e2e/tests/scanner.test.ts",
+    "e2e:test:android:program": "detox test --configuration android.emu.debug e2e/tests/program.test.ts",
+    "e2e:test:android:offline": "detox test --configuration android.emu.debug e2e/tests/offline.test.ts",
+    "e2e:clean": "detox clean-framework-cache && detox build-framework-cache",
+    "e2e:recorder": "detox recorder --configuration ios.sim.debug"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.0.0",

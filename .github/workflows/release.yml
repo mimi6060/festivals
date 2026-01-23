@@ -1,0 +1,454 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type (auto, patch, minor, major)'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+      prerelease:
+        description: 'Create prerelease'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+jobs:
+  # ============================================
+  # Determine Version
+  # ============================================
+  version:
+    name: Determine Version
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.version.outputs.new_version }}
+      current_version: ${{ steps.version.outputs.current_version }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+      should_release: ${{ steps.version.outputs.should_release }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          npm install -g conventional-changelog-cli semantic-release @semantic-release/changelog @semantic-release/git
+
+      - name: Get current version
+        id: current
+        run: |
+          # Get the latest tag or default to v0.0.0
+          CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "current_version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
+          echo "Current version: ${CURRENT_VERSION}"
+
+      - name: Analyze commits
+        id: analyze
+        run: |
+          # Get commits since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS=$(git log ${LAST_TAG}..HEAD --oneline)
+          else
+            COMMITS=$(git log --oneline)
+          fi
+
+          echo "Commits since last release:"
+          echo "$COMMITS"
+
+          # Determine bump type from commit messages
+          BUMP_TYPE="none"
+
+          if echo "$COMMITS" | grep -qE "^[a-f0-9]+ (feat|feature)(\(.+\))?!:|BREAKING CHANGE"; then
+            BUMP_TYPE="major"
+          elif echo "$COMMITS" | grep -qE "^[a-f0-9]+ (feat|feature)(\(.+\))?:"; then
+            BUMP_TYPE="minor"
+          elif echo "$COMMITS" | grep -qE "^[a-f0-9]+ (fix|perf|refactor)(\(.+\))?:"; then
+            BUMP_TYPE="patch"
+          fi
+
+          # Override with manual input if provided
+          if [ "${{ github.event.inputs.release_type }}" != "auto" ] && [ -n "${{ github.event.inputs.release_type }}" ]; then
+            BUMP_TYPE="${{ github.event.inputs.release_type }}"
+          fi
+
+          echo "bump_type=${BUMP_TYPE}" >> $GITHUB_OUTPUT
+          echo "Determined bump type: ${BUMP_TYPE}"
+
+      - name: Calculate new version
+        id: version
+        run: |
+          CURRENT="${{ steps.current.outputs.current_version }}"
+          BUMP="${{ steps.analyze.outputs.bump_type }}"
+
+          # Remove 'v' prefix for calculation
+          VERSION=${CURRENT#v}
+
+          # Split version
+          IFS='.' read -ra PARTS <<< "$VERSION"
+          MAJOR=${PARTS[0]:-0}
+          MINOR=${PARTS[1]:-0}
+          PATCH=${PARTS[2]:-0}
+
+          # Calculate new version
+          case $BUMP in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+            none)
+              echo "No release needed"
+              echo "should_release=false" >> $GITHUB_OUTPUT
+              exit 0
+              ;;
+          esac
+
+          NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+
+          # Add prerelease suffix if requested
+          if [ "${{ github.event.inputs.prerelease }}" == "true" ]; then
+            TIMESTAMP=$(date +%Y%m%d%H%M%S)
+            NEW_VERSION="${NEW_VERSION}-rc.${TIMESTAMP}"
+          fi
+
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "current_version=${CURRENT}" >> $GITHUB_OUTPUT
+          echo "should_release=true" >> $GITHUB_OUTPUT
+          echo "New version: ${NEW_VERSION}"
+
+      - name: Generate changelog
+        id: changelog
+        if: steps.version.outputs.should_release == 'true'
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          # Generate changelog content
+          echo "## What's Changed" > changelog.md
+          echo "" >> changelog.md
+
+          # Features
+          if [ -n "$LAST_TAG" ]; then
+            FEATURES=$(git log ${LAST_TAG}..HEAD --oneline --grep="^feat" --grep="^feature" --extended-regexp || true)
+          else
+            FEATURES=$(git log --oneline --grep="^feat" --grep="^feature" --extended-regexp || true)
+          fi
+
+          if [ -n "$FEATURES" ]; then
+            echo "### Features" >> changelog.md
+            echo "$FEATURES" | while read -r line; do
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              echo "- $COMMIT_MSG" >> changelog.md
+            done
+            echo "" >> changelog.md
+          fi
+
+          # Bug fixes
+          if [ -n "$LAST_TAG" ]; then
+            FIXES=$(git log ${LAST_TAG}..HEAD --oneline --grep="^fix" --extended-regexp || true)
+          else
+            FIXES=$(git log --oneline --grep="^fix" --extended-regexp || true)
+          fi
+
+          if [ -n "$FIXES" ]; then
+            echo "### Bug Fixes" >> changelog.md
+            echo "$FIXES" | while read -r line; do
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              echo "- $COMMIT_MSG" >> changelog.md
+            done
+            echo "" >> changelog.md
+          fi
+
+          # Other changes
+          if [ -n "$LAST_TAG" ]; then
+            OTHERS=$(git log ${LAST_TAG}..HEAD --oneline --invert-grep --grep="^feat" --grep="^fix" --grep="^feature" --extended-regexp || true)
+          else
+            OTHERS=$(git log --oneline --invert-grep --grep="^feat" --grep="^fix" --grep="^feature" --extended-regexp | head -20 || true)
+          fi
+
+          if [ -n "$OTHERS" ]; then
+            echo "### Other Changes" >> changelog.md
+            echo "$OTHERS" | head -10 | while read -r line; do
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              echo "- $COMMIT_MSG" >> changelog.md
+            done
+            echo "" >> changelog.md
+          fi
+
+          # Full changelog link
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.current.outputs.current_version }}...${{ steps.version.outputs.new_version }}" >> changelog.md
+
+          # Store changelog in output
+          CHANGELOG=$(cat changelog.md)
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload changelog artifact
+        if: steps.version.outputs.should_release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: changelog.md
+          retention-days: 1
+
+  # ============================================
+  # Build and Push Docker Images
+  # ============================================
+  build:
+    name: Build Images
+    runs-on: ubuntu-latest
+    needs: version
+    if: needs.version.outputs.should_release == 'true'
+
+    strategy:
+      matrix:
+        include:
+          - context: ./backend
+            dockerfile: Dockerfile
+            image: api
+            target: api
+          - context: ./backend
+            dockerfile: Dockerfile
+            image: worker
+            target: worker
+          - context: ./admin
+            dockerfile: Dockerfile
+            image: admin
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.new_version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.new_version }}
+            type=semver,pattern={{major}},value=${{ needs.version.outputs.new_version }}
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.event.inputs.prerelease != 'true' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.version.outputs.new_version }}
+            COMMIT_SHA=${{ github.sha }}
+
+  # ============================================
+  # Create GitHub Release
+  # ============================================
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [version, build]
+    if: needs.version.outputs.should_release == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download changelog
+        uses: actions/download-artifact@v4
+        with:
+          name: changelog
+
+      - name: Create Git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ needs.version.outputs.new_version }}" -m "Release ${{ needs.version.outputs.new_version }}"
+          git push origin "${{ needs.version.outputs.new_version }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.version.outputs.new_version }}
+          name: Release ${{ needs.version.outputs.new_version }}
+          body_path: changelog.md
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update CHANGELOG.md
+        run: |
+          # Prepend new changelog entry to CHANGELOG.md
+          if [ -f CHANGELOG.md ]; then
+            echo "# Changelog" > CHANGELOG.new.md
+            echo "" >> CHANGELOG.new.md
+            echo "## [${{ needs.version.outputs.new_version }}] - $(date +%Y-%m-%d)" >> CHANGELOG.new.md
+            echo "" >> CHANGELOG.new.md
+            cat changelog.md >> CHANGELOG.new.md
+            echo "" >> CHANGELOG.new.md
+            # Skip the header from existing changelog
+            tail -n +3 CHANGELOG.md >> CHANGELOG.new.md
+            mv CHANGELOG.new.md CHANGELOG.md
+          else
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "## [${{ needs.version.outputs.new_version }}] - $(date +%Y-%m-%d)" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            cat changelog.md >> CHANGELOG.md
+          fi
+
+          git add CHANGELOG.md
+          git commit -m "docs: update CHANGELOG for ${{ needs.version.outputs.new_version }}" || true
+          git push origin main || true
+
+  # ============================================
+  # Notify Release
+  # ============================================
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [version, release]
+    if: needs.version.outputs.should_release == 'true'
+
+    steps:
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "New Release Published",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*New Release: ${{ needs.version.outputs.new_version }}*\n\nA new version of Festivals has been released.\n\n<https://github.com/${{ github.repository }}/releases/tag/${{ needs.version.outputs.new_version }}|View Release Notes>"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Version:*\n${{ needs.version.outputs.new_version }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Prerelease:*\n${{ github.event.inputs.prerelease == 'true' && 'Yes' || 'No' }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true
+
+      - name: Notify Discord
+        if: ${{ secrets.DISCORD_WEBHOOK_URL != '' }}
+        run: |
+          curl -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "New Release: ${{ needs.version.outputs.new_version }}",
+                "description": "A new version of Festivals has been released.",
+                "url": "https://github.com/${{ github.repository }}/releases/tag/${{ needs.version.outputs.new_version }}",
+                "color": 5025616,
+                "fields": [
+                  {
+                    "name": "Version",
+                    "value": "${{ needs.version.outputs.new_version }}",
+                    "inline": true
+                  },
+                  {
+                    "name": "Prerelease",
+                    "value": "${{ github.event.inputs.prerelease == '\''true'\'' && '\''Yes'\'' || '\''No'\'' }}",
+                    "inline": true
+                  }
+                ]
+              }]
+            }' || true
+        continue-on-error: true
+
+  # ============================================
+  # Trigger Deployment
+  # ============================================
+  trigger-staging:
+    name: Trigger Staging Deployment
+    runs-on: ubuntu-latest
+    needs: [version, release]
+    if: needs.version.outputs.should_release == 'true'
+
+    steps:
+      - name: Trigger staging deployment
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: deploy-staging
+          client-payload: '{"version": "${{ needs.version.outputs.new_version }}", "ref": "${{ github.sha }}"}'

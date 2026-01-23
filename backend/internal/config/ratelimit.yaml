@@ -1,0 +1,301 @@
+# Rate Limiting Configuration
+# This file configures rate limits for the Festivals API
+
+# ============================================================================
+# Global Settings
+# ============================================================================
+global:
+  # Default requests per minute for authenticated users without specific role limits
+  default_requests_per_minute: 60
+
+  # Default requests per hour for authenticated users
+  default_requests_per_hour: 1000
+
+  # Enable IP-based rate limiting for unauthenticated requests
+  enable_ip_limiting: true
+
+  # Requests per minute for unauthenticated IP addresses
+  ip_requests_per_minute: 30
+
+  # Redis key prefix for rate limit keys
+  key_prefix: "ratelimit:"
+
+# ============================================================================
+# Role-Based Rate Limits
+# ============================================================================
+# Limits are applied based on the user's highest role
+roles:
+  # Super Admin - highest privileges
+  ADMIN:
+    requests_per_minute: 300
+    requests_per_hour: 10000
+    burst_size: 50
+
+  # Festival Organizer - manages festivals
+  ORGANIZER:
+    requests_per_minute: 200
+    requests_per_hour: 5000
+    burst_size: 30
+
+  # Staff member - operational access
+  STAFF:
+    requests_per_minute: 120
+    requests_per_hour: 3000
+    burst_size: 20
+
+  # Regular authenticated user
+  USER:
+    requests_per_minute: 60
+    requests_per_hour: 1000
+    burst_size: 10
+
+# ============================================================================
+# Endpoint-Specific Rate Limits
+# ============================================================================
+# These limits override role-based limits when lower
+# Use the minimum of role limit and endpoint limit
+endpoints:
+  # Authentication endpoints - strict limits to prevent brute force
+  - path: /api/v1/auth/login
+    method: POST
+    requests_per_minute: 5
+    burst_size: 3
+    description: "Login attempts - strict limit to prevent brute force"
+
+  - path: /api/v1/auth/register
+    method: POST
+    requests_per_minute: 3
+    burst_size: 2
+    description: "Registration attempts - very strict to prevent spam"
+
+  - path: /api/v1/auth/forgot-password
+    method: POST
+    requests_per_minute: 3
+    burst_size: 2
+    description: "Password reset requests"
+
+  - path: /api/v1/auth/reset-password
+    method: POST
+    requests_per_minute: 5
+    burst_size: 3
+    description: "Password reset confirmation"
+
+  - path: /api/v1/auth/verify-email
+    method: POST
+    requests_per_minute: 10
+    burst_size: 5
+    description: "Email verification"
+
+  # Financial operations - moderate limits
+  - path: /api/v1/wallets/:walletId/topup
+    method: POST
+    requests_per_minute: 10
+    burst_size: 5
+    description: "Wallet top-up operations"
+
+  - path: /api/v1/wallets/:walletId/transfer
+    method: POST
+    requests_per_minute: 20
+    burst_size: 10
+    description: "Wallet transfers"
+
+  - path: /api/v1/payments/checkout
+    method: POST
+    requests_per_minute: 10
+    burst_size: 5
+    description: "Payment checkout"
+
+  - path: /api/v1/refunds
+    method: POST
+    requests_per_minute: 10
+    burst_size: 5
+    description: "Refund requests"
+
+  # Ticket operations
+  - path: /api/v1/festivals/:festivalId/tickets/scan
+    method: POST
+    requests_per_minute: 100
+    burst_size: 30
+    description: "Ticket scanning - high volume at entry gates"
+
+  - path: /api/v1/tickets/transfer
+    method: POST
+    requests_per_minute: 10
+    burst_size: 5
+    description: "Ticket transfers"
+
+  # Reporting and exports - resource intensive
+  - path: /api/v1/festivals/:festivalId/reports/export
+    method: POST
+    requests_per_minute: 5
+    burst_size: 2
+    description: "Report exports - resource intensive"
+
+  - path: /api/v1/festivals/:festivalId/analytics
+    requests_per_minute: 30
+    burst_size: 10
+    description: "Analytics queries"
+
+  # Search endpoints
+  - path: /api/v1/search
+    requests_per_minute: 30
+    burst_size: 15
+    description: "Global search"
+
+  - path: /api/v1/festivals/:festivalId/search
+    requests_per_minute: 30
+    burst_size: 15
+    description: "Festival-scoped search"
+
+  # File uploads
+  - path: /api/v1/uploads
+    method: POST
+    requests_per_minute: 20
+    burst_size: 10
+    description: "File uploads"
+
+  - path: /api/v1/festivals/:festivalId/gallery
+    method: POST
+    requests_per_minute: 30
+    burst_size: 15
+    description: "Gallery uploads"
+
+  # Bulk operations
+  - path: /api/v1/festivals/:festivalId/tickets/bulk-create
+    method: POST
+    requests_per_minute: 5
+    burst_size: 2
+    description: "Bulk ticket creation"
+
+  - path: /api/v1/festivals/:festivalId/staff/bulk-invite
+    method: POST
+    requests_per_minute: 5
+    burst_size: 2
+    description: "Bulk staff invitations"
+
+  # Webhooks (if any external calls)
+  - path: /api/v1/webhooks/stripe
+    method: POST
+    requests_per_minute: 100
+    burst_size: 50
+    description: "Stripe webhook callbacks"
+
+  # AI/Chatbot endpoints - resource intensive
+  - path: /api/v1/festivals/:festivalId/chatbot
+    method: POST
+    requests_per_minute: 20
+    burst_size: 5
+    description: "AI chatbot queries"
+
+  # Notifications
+  - path: /api/v1/festivals/:festivalId/notifications/broadcast
+    method: POST
+    requests_per_minute: 5
+    burst_size: 2
+    description: "Broadcast notifications"
+
+# ============================================================================
+# Paths to Skip Rate Limiting
+# ============================================================================
+# These paths are exempt from rate limiting (health checks, metrics, etc.)
+skip_paths:
+  - /health
+  - /ready
+  - /live
+  - /api/v1/health
+  - /api/v1/version
+  - /metrics
+  - /favicon.ico
+  - /robots.txt
+
+# ============================================================================
+# IP Whitelist
+# ============================================================================
+# IPs or CIDR ranges that bypass rate limiting
+# Use for internal services, monitoring, load balancers, etc.
+ip_whitelist:
+  # Localhost
+  - "127.0.0.1"
+  - "::1"
+
+  # Docker bridge network (common for containerized deployments)
+  - "172.17.0.0/16"
+  - "172.18.0.0/16"
+
+  # Kubernetes pod network (adjust based on your cluster)
+  - "10.0.0.0/8"
+
+  # Private networks (adjust based on your infrastructure)
+  # - "192.168.0.0/16"
+
+  # Cloud provider health check IPs (examples)
+  # AWS: https://docs.aws.amazon.com/elasticloadbalancing/latest/classic/elb-security-groups.html
+  # GCP: https://cloud.google.com/load-balancing/docs/health-check-concepts
+  # Azure: https://docs.microsoft.com/en-us/azure/load-balancer/load-balancer-custom-probe-overview
+
+# ============================================================================
+# Internal Service API Keys
+# ============================================================================
+# API keys for internal services that bypass rate limiting
+# These are separate from user authentication
+internal_service_api_keys:
+  # Worker service key (for background job processing)
+  # - "worker-service-key-change-in-production"
+
+  # Monitoring service key
+  # - "monitoring-service-key-change-in-production"
+
+  # Integration service key
+  # - "integration-service-key-change-in-production"
+
+# ============================================================================
+# Adaptive Rate Limiting
+# ============================================================================
+# Automatically adjusts rate limits based on server load
+adaptive:
+  # Enable adaptive rate limiting
+  enabled: true
+
+  # Redis key where load factor is stored (0.0 to 1.0)
+  # This should be updated by a monitoring service
+  load_key: "system:load_factor"
+
+  # Minimum rate limit even under maximum load
+  minimum_limit: 10
+
+  # Maximum reduction percentage at full load (0.0 to 1.0)
+  # 0.7 means limits can be reduced by up to 70% under high load
+  max_load_reduction: 0.7
+
+# ============================================================================
+# Configuration Notes
+# ============================================================================
+#
+# Rate Limit Algorithms Used:
+# - Sliding Window: Default algorithm for most endpoints
+# - Token Bucket: Used for burst handling
+# - Concurrency Limiting: For limiting concurrent requests
+#
+# Headers Returned:
+# - X-RateLimit-Limit: Maximum requests allowed in window
+# - X-RateLimit-Remaining: Requests remaining in current window
+# - X-RateLimit-Reset: Unix timestamp when window resets
+# - Retry-After: Seconds to wait before retrying (on 429)
+#
+# Response on Rate Limit:
+# HTTP 429 Too Many Requests
+# {
+#   "error": {
+#     "code": "RATE_LIMITED",
+#     "message": "Too many requests. Please try again later.",
+#     "retry_after": <seconds>
+#   }
+# }
+#
+# Best Practices:
+# 1. Set endpoint limits lower than role limits for sensitive operations
+# 2. Use burst_size for endpoints that may have legitimate spikes
+# 3. Monitor rate limit metrics to adjust limits based on actual usage
+# 4. Keep health check endpoints in skip_paths
+# 5. Whitelist your infrastructure IPs to prevent self-blocking
+# 6. Use internal service API keys for service-to-service communication

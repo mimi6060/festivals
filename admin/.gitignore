@@ -12,6 +12,13 @@ build/
 # Testing
 coverage/
 
+# Playwright
+playwright-report/
+test-results/
+e2e/.auth/*.json
+e2e/.temp/
+e2e/downloads/
+
 # Misc
 .DS_Store
 *.pem

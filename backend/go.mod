@@ -26,6 +26,11 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.31.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.31.0
 	github.com/xuri/excelize/v2 v2.8.1
+	go.opentelemetry.io/otel v1.24.0
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.24.0
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.24.0
+	go.opentelemetry.io/otel/sdk v1.24.0
+	go.opentelemetry.io/otel/trace v1.24.0
 	golang.org/x/text v0.16.0
 	gorm.io/driver/postgres v1.5.4
 	gorm.io/gorm v1.25.5
