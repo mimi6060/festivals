@@ -1,0 +1,461 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "_comment": "Example Auth0 configuration for Festivals Platform - Export this as reference",
+
+  "tenant": {
+    "name": "festivals",
+    "region": "eu",
+    "domain": "festivals.eu.auth0.com",
+    "friendly_name": "Festivals Platform",
+    "picture_url": "https://cdn.festivals.app/branding/logo.png",
+    "support_email": "support@festivals.app",
+    "support_url": "https://help.festivals.app",
+    "default_audience": "https://api.festivals.app",
+    "default_directory": "Username-Password-Authentication",
+    "flags": {
+      "universal_login": true,
+      "new_universal_login_experience_enabled": true,
+      "disable_clickjack_protection_headers": false,
+      "enable_public_signup_user_exists_error": true
+    }
+  },
+
+  "applications": [
+    {
+      "name": "Festivals API",
+      "description": "Backend API - Machine to Machine authentication",
+      "app_type": "non_interactive",
+      "token_endpoint_auth_method": "client_secret_post",
+      "is_first_party": true,
+      "oidc_conformant": true,
+      "jwt_configuration": {
+        "alg": "RS256",
+        "lifetime_in_seconds": 36000,
+        "secret_encoded": true
+      },
+      "grant_types": [
+        "client_credentials"
+      ],
+      "custom_login_page_on": false
+    },
+    {
+      "name": "Festivals Admin",
+      "description": "Admin Dashboard - Single Page Application",
+      "app_type": "spa",
+      "token_endpoint_auth_method": "none",
+      "is_first_party": true,
+      "oidc_conformant": true,
+      "callbacks": [
+        "http://localhost:3000/api/auth/callback/auth0",
+        "https://admin.festivals.app/api/auth/callback/auth0",
+        "https://staging-admin.festivals.app/api/auth/callback/auth0"
+      ],
+      "allowed_logout_urls": [
+        "http://localhost:3000",
+        "https://admin.festivals.app",
+        "https://staging-admin.festivals.app"
+      ],
+      "web_origins": [
+        "http://localhost:3000",
+        "https://admin.festivals.app",
+        "https://staging-admin.festivals.app"
+      ],
+      "allowed_origins": [
+        "http://localhost:3000",
+        "https://admin.festivals.app",
+        "https://staging-admin.festivals.app"
+      ],
+      "jwt_configuration": {
+        "alg": "RS256",
+        "lifetime_in_seconds": 3600,
+        "secret_encoded": true
+      },
+      "grant_types": [
+        "authorization_code",
+        "implicit",
+        "refresh_token"
+      ],
+      "refresh_token": {
+        "rotation_type": "rotating",
+        "expiration_type": "expiring",
+        "leeway": 0,
+        "token_lifetime": 2592000,
+        "infinite_token_lifetime": false,
+        "idle_token_lifetime": 1296000,
+        "infinite_idle_token_lifetime": false
+      },
+      "custom_login_page_on": false
+    },
+    {
+      "name": "Festivals Mobile",
+      "description": "Mobile App - Native Application (iOS/Android)",
+      "app_type": "native",
+      "token_endpoint_auth_method": "none",
+      "is_first_party": true,
+      "oidc_conformant": true,
+      "callbacks": [
+        "festivals://auth/callback",
+        "exp://localhost:8081/--/auth/callback",
+        "https://auth.expo.io/@festivals/festivals-mobile"
+      ],
+      "allowed_logout_urls": [
+        "festivals://auth/logout",
+        "exp://localhost:8081",
+        "https://auth.expo.io/@festivals/festivals-mobile"
+      ],
+      "jwt_configuration": {
+        "alg": "RS256",
+        "lifetime_in_seconds": 3600,
+        "secret_encoded": true
+      },
+      "grant_types": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "refresh_token": {
+        "rotation_type": "rotating",
+        "expiration_type": "expiring",
+        "leeway": 0,
+        "token_lifetime": 2592000,
+        "infinite_token_lifetime": false,
+        "idle_token_lifetime": 1296000,
+        "infinite_idle_token_lifetime": false
+      },
+      "native_social_login": {
+        "apple": {
+          "enabled": true
+        },
+        "facebook": {
+          "enabled": false
+        }
+      },
+      "custom_login_page_on": false
+    }
+  ],
+
+  "apis": [
+    {
+      "name": "Festivals API",
+      "identifier": "https://api.festivals.app",
+      "signing_alg": "RS256",
+      "token_lifetime": 3600,
+      "token_lifetime_for_web": 7200,
+      "skip_consent_for_verifiable_first_party_clients": true,
+      "allow_offline_access": true,
+      "enforce_policies": true,
+      "scopes": [
+        { "value": "read:festivals", "description": "Read festival information" },
+        { "value": "write:festivals", "description": "Create and update festivals" },
+        { "value": "delete:festivals", "description": "Delete festivals" },
+        { "value": "read:stands", "description": "Read stand information" },
+        { "value": "write:stands", "description": "Create and update stands" },
+        { "value": "delete:stands", "description": "Delete stands" },
+        { "value": "read:products", "description": "Read product information" },
+        { "value": "write:products", "description": "Create and update products" },
+        { "value": "delete:products", "description": "Delete products" },
+        { "value": "read:orders", "description": "Read order information" },
+        { "value": "write:orders", "description": "Create and update orders" },
+        { "value": "process:orders", "description": "Process orders and payments" },
+        { "value": "read:wallets", "description": "Read wallet information" },
+        { "value": "write:wallets", "description": "Create and update wallets" },
+        { "value": "topup:wallets", "description": "Add funds to wallets" },
+        { "value": "refund:wallets", "description": "Process wallet refunds" },
+        { "value": "read:tickets", "description": "Read ticket information" },
+        { "value": "write:tickets", "description": "Create and update tickets" },
+        { "value": "scan:tickets", "description": "Scan and validate tickets" },
+        { "value": "read:staff", "description": "Read staff information" },
+        { "value": "write:staff", "description": "Create and update staff" },
+        { "value": "manage:staff", "description": "Full staff management" },
+        { "value": "read:reports", "description": "Read reports and analytics" },
+        { "value": "export:reports", "description": "Export report data" },
+        { "value": "read:settings", "description": "Read settings" },
+        { "value": "write:settings", "description": "Update settings" },
+        { "value": "manage:roles", "description": "Manage roles and permissions" },
+        { "value": "read:audit", "description": "Read audit logs" },
+        { "value": "send:notifications", "description": "Send push notifications" },
+        { "value": "manage:nfc", "description": "Manage NFC wristbands" },
+        { "value": "manage:api", "description": "Manage API keys and webhooks" },
+        { "value": "read:lineup", "description": "Read lineup information" },
+        { "value": "write:lineup", "description": "Create and update lineup" },
+        { "value": "read:artists", "description": "Read artist information" },
+        { "value": "write:artists", "description": "Create and update artists" },
+        { "value": "read:security", "description": "Read security information" },
+        { "value": "write:security", "description": "Manage security incidents" },
+        { "value": "read:media", "description": "Read media files" },
+        { "value": "write:media", "description": "Upload and manage media" }
+      ]
+    }
+  ],
+
+  "roles": [
+    {
+      "name": "SUPER_ADMIN",
+      "description": "Full platform access - can manage all festivals and system settings",
+      "permissions": ["*"]
+    },
+    {
+      "name": "FESTIVAL_OWNER",
+      "description": "Owner of a festival - full access to their festival",
+      "permissions": [
+        "read:festivals", "write:festivals",
+        "read:stands", "write:stands", "delete:stands",
+        "read:products", "write:products", "delete:products",
+        "read:orders", "write:orders", "process:orders",
+        "read:wallets", "write:wallets", "topup:wallets", "refund:wallets",
+        "read:tickets", "write:tickets", "scan:tickets",
+        "read:staff", "write:staff", "manage:staff",
+        "read:reports", "export:reports",
+        "read:settings", "write:settings",
+        "manage:roles",
+        "read:audit",
+        "send:notifications",
+        "manage:nfc",
+        "manage:api",
+        "read:lineup", "write:lineup",
+        "read:artists", "write:artists",
+        "read:security", "write:security",
+        "read:media", "write:media"
+      ]
+    },
+    {
+      "name": "FESTIVAL_ADMIN",
+      "description": "Administrator for a festival - almost full access except ownership transfer",
+      "permissions": [
+        "read:festivals", "write:festivals",
+        "read:stands", "write:stands", "delete:stands",
+        "read:products", "write:products", "delete:products",
+        "read:orders", "write:orders", "process:orders",
+        "read:wallets", "write:wallets", "topup:wallets", "refund:wallets",
+        "read:tickets", "write:tickets", "scan:tickets",
+        "read:staff", "write:staff", "manage:staff",
+        "read:reports", "export:reports",
+        "read:settings", "write:settings",
+        "read:audit",
+        "send:notifications",
+        "manage:nfc",
+        "manage:api",
+        "read:lineup", "write:lineup",
+        "read:artists", "write:artists",
+        "read:security", "write:security",
+        "read:media", "write:media"
+      ]
+    },
+    {
+      "name": "FINANCE_MANAGER",
+      "description": "Manages finances, transactions, refunds, and reports",
+      "permissions": [
+        "read:festivals",
+        "read:orders", "process:orders",
+        "read:wallets", "refund:wallets",
+        "read:reports", "export:reports",
+        "read:audit"
+      ]
+    },
+    {
+      "name": "LINEUP_MANAGER",
+      "description": "Manages festival lineup and scheduling",
+      "permissions": [
+        "read:festivals",
+        "read:lineup", "write:lineup",
+        "read:artists", "write:artists",
+        "send:notifications",
+        "read:media", "write:media"
+      ]
+    },
+    {
+      "name": "SECURITY_MANAGER",
+      "description": "Manages security, access control, and scanning",
+      "permissions": [
+        "read:festivals",
+        "read:tickets", "scan:tickets",
+        "read:staff", "write:staff", "manage:staff",
+        "read:security", "write:security",
+        "read:audit"
+      ]
+    },
+    {
+      "name": "CASHIER",
+      "description": "Can process sales and view basic information",
+      "permissions": [
+        "read:festivals",
+        "read:products",
+        "read:orders", "write:orders", "process:orders",
+        "read:wallets"
+      ]
+    },
+    {
+      "name": "SCANNER",
+      "description": "Can scan tickets and check entries",
+      "permissions": [
+        "read:festivals",
+        "read:tickets", "scan:tickets",
+        "read:security"
+      ]
+    },
+    {
+      "name": "VIEWER",
+      "description": "Read-only access to festival information",
+      "permissions": [
+        "read:festivals",
+        "read:stands",
+        "read:products",
+        "read:orders",
+        "read:tickets",
+        "read:reports",
+        "read:lineup"
+      ]
+    }
+  ],
+
+  "connections": {
+    "database": {
+      "name": "Username-Password-Authentication",
+      "strategy": "auth0",
+      "options": {
+        "password_policy": "good",
+        "password_history": {
+          "enable": true,
+          "size": 5
+        },
+        "password_no_personal_info": {
+          "enable": true
+        },
+        "password_dictionary": {
+          "enable": true
+        },
+        "brute_force_protection": true,
+        "password_complexity_options": {
+          "min_length": 8
+        },
+        "requires_username": false,
+        "import_mode": false,
+        "disable_signup": false,
+        "enabledDatabaseCustomization": false
+      }
+    },
+    "social": [
+      {
+        "name": "google-oauth2",
+        "strategy": "google-oauth2",
+        "enabled_clients": ["Festivals Admin", "Festivals Mobile"],
+        "options": {
+          "email": true,
+          "profile": true,
+          "scope": ["email", "profile"]
+        }
+      },
+      {
+        "name": "apple",
+        "strategy": "apple",
+        "enabled_clients": ["Festivals Mobile"],
+        "options": {
+          "email": true,
+          "name": true,
+          "scope": ["email", "name"]
+        }
+      }
+    ]
+  },
+
+  "actions": {
+    "post_login": [
+      {
+        "name": "Add Custom Claims",
+        "code": "exports.onExecutePostLogin = async (event, api) => {\n  const namespace = 'https://festivals.app';\n\n  // Add custom claims\n  api.accessToken.setCustomClaim(`${namespace}/roles`, event.authorization?.roles || []);\n  api.accessToken.setCustomClaim(`${namespace}/email`, event.user.email);\n  api.accessToken.setCustomClaim(`${namespace}/email_verified`, event.user.email_verified);\n\n  // Add user metadata if available\n  if (event.user.user_metadata) {\n    if (event.user.user_metadata.festival_id) {\n      api.accessToken.setCustomClaim(`${namespace}/festival_id`, event.user.user_metadata.festival_id);\n    }\n    if (event.user.user_metadata.stand_ids) {\n      api.accessToken.setCustomClaim(`${namespace}/stand_ids`, event.user.user_metadata.stand_ids);\n    }\n  }\n\n  // Add app metadata (organizer info)\n  if (event.user.app_metadata) {\n    if (event.user.app_metadata.organizer_for) {\n      api.accessToken.setCustomClaim(`${namespace}/organizer_for`, event.user.app_metadata.organizer_for);\n    }\n  }\n};",
+        "runtime": "node18",
+        "dependencies": [],
+        "secrets": []
+      }
+    ]
+  },
+
+  "branding": {
+    "colors": {
+      "primary": "#6366F1",
+      "page_background": "#0F172A"
+    },
+    "logo_url": "https://cdn.festivals.app/branding/logo.png",
+    "favicon_url": "https://cdn.festivals.app/branding/favicon.ico"
+  },
+
+  "attack_protection": {
+    "brute_force_protection": {
+      "enabled": true,
+      "shields": ["block", "user_notification"],
+      "max_attempts": 10,
+      "mode": "count_per_identifier_and_ip",
+      "allowlist": []
+    },
+    "suspicious_ip_throttling": {
+      "enabled": true,
+      "shields": ["block", "admin_notification"],
+      "allowlist": [],
+      "stage": {
+        "pre_login": {
+          "max_attempts": 100,
+          "rate": 864000
+        },
+        "pre_user_registration": {
+          "max_attempts": 50,
+          "rate": 1200
+        }
+      }
+    },
+    "breached_password_detection": {
+      "enabled": true,
+      "shields": ["block", "user_notification", "admin_notification"],
+      "method": "standard",
+      "admin_notification_frequency": ["immediately"]
+    }
+  },
+
+  "email_templates": {
+    "verification_email": {
+      "enabled": true,
+      "from": "noreply@festivals.app",
+      "subject": "Verify your Festivals account",
+      "url_lifetime_in_seconds": 432000
+    },
+    "reset_email": {
+      "enabled": true,
+      "from": "noreply@festivals.app",
+      "subject": "Reset your Festivals password",
+      "url_lifetime_in_seconds": 86400
+    },
+    "welcome_email": {
+      "enabled": true,
+      "from": "hello@festivals.app",
+      "subject": "Welcome to Festivals!"
+    },
+    "blocked_account": {
+      "enabled": true,
+      "from": "security@festivals.app",
+      "subject": "Your Festivals account has been blocked"
+    },
+    "stolen_credentials": {
+      "enabled": true,
+      "from": "security@festivals.app",
+      "subject": "Festivals Security Alert - Password change recommended"
+    }
+  },
+
+  "guardian": {
+    "enabled": false,
+    "factors": {
+      "sms": false,
+      "push_notification": false,
+      "otp": true,
+      "email": true,
+      "webauthn_roaming": false,
+      "webauthn_platform": false,
+      "recovery_code": true
+    }
+  },
+
+  "_instructions": {
+    "import": "This configuration file serves as a reference for Auth0 setup. Use the Auth0 Dashboard or Auth0 Deploy CLI to configure your tenant.",
+    "deploy_cli": "Install auth0-deploy-cli and run: a0deploy import -i auth0-config.json",
+    "manual_setup": "Follow the AUTH0.md guide for step-by-step manual configuration.",
+    "secrets": "Client secrets, API keys, and other sensitive values must be configured separately and should never be stored in this file."
+  }
+}

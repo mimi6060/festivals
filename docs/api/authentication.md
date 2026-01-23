@@ -4,15 +4,64 @@
 
 The Festivals API supports multiple authentication methods to accommodate different use cases:
 
-1. **JWT Bearer Token** - For user and admin authentication
+1. **JWT Bearer Token** - For user and admin authentication (via Auth0)
 2. **API Key** - For external integrations and webhooks
-3. **OAuth 2.0** - For third-party applications
+3. **OAuth 2.0** - For third-party applications (via Auth0)
+
+Authentication is powered by [Auth0](https://auth0.com), providing secure, scalable identity management with support for social logins, multi-factor authentication, and enterprise connections.
+
+## Auth0 Integration
+
+### Configuration
+
+The backend validates JWT tokens issued by Auth0. Required environment variables:
+
+```bash
+# Auth0 Configuration
+AUTH0_DOMAIN=your-tenant.eu.auth0.com
+AUTH0_AUDIENCE=https://api.festivals.app
+```
+
+### Token Validation Flow
+
+```
+1. Client obtains token from Auth0 (via login, social auth, etc.)
+2. Client includes token in Authorization header
+3. Backend fetches JWKS from Auth0 (cached for 1 hour)
+4. Backend validates token signature, expiration, and audience
+5. Backend extracts claims and permissions from token
+6. Request proceeds with user context
+```
+
+### JWKS Caching
+
+The backend caches Auth0's JSON Web Key Set (JWKS) for performance:
+
+- **Cache TTL**: 1 hour (configurable)
+- **Cache Location**: In-memory + Redis (if available)
+- **Auto-refresh**: On cache miss or key rotation
+- **Endpoint**: `https://{AUTH0_DOMAIN}/.well-known/jwks.json`
+
+### Custom Claims
+
+Auth0 tokens include custom claims under the `https://festivals.app` namespace:
+
+| Claim | Description |
+|-------|-------------|
+| `https://festivals.app/roles` | User's assigned roles |
+| `https://festivals.app/festival_id` | Current festival context |
+| `https://festivals.app/stand_ids` | Assigned stand IDs (for staff) |
+| `https://festivals.app/organizer_for` | Festivals user can organize |
+
+> **Note**: For Auth0 setup instructions, see [Auth0 Setup Guide](../setup/AUTH0.md).
+
+---
 
 ## JWT Bearer Token
 
 ### Obtaining a Token
 
-Users obtain JWT tokens through the login endpoint:
+Users obtain JWT tokens through Auth0's Universal Login or the login endpoint:
 
 ```bash
 POST /auth/login
@@ -49,15 +98,40 @@ curl -X GET https://api.festivals.io/v1/me \
 
 The JWT contains the following claims:
 
+#### Standard Claims (OIDC)
+
 | Claim | Description |
 |-------|-------------|
-| `sub` | User ID (UUID) |
-| `email` | User email address |
-| `roles` | Array of user roles |
-| `permissions` | Array of granted permissions |
-| `festival_id` | Current festival context (optional) |
+| `sub` | User ID (Auth0 user_id) |
+| `iss` | Token issuer (Auth0 domain) |
+| `aud` | Token audience (API identifier) |
 | `exp` | Token expiration timestamp |
 | `iat` | Token issued at timestamp |
+| `scope` | Space-separated list of scopes |
+
+#### Standard Profile Claims
+
+| Claim | Description |
+|-------|-------------|
+| `email` | User email address |
+| `email_verified` | Whether email is verified |
+| `name` | User's full name |
+| `picture` | Profile picture URL |
+
+#### Custom Claims (Festivals-specific)
+
+| Claim | Description |
+|-------|-------------|
+| `https://festivals.app/roles` | Array of user roles |
+| `https://festivals.app/festival_id` | Current festival context (optional) |
+| `https://festivals.app/stand_ids` | Assigned stand IDs (for staff) |
+| `https://festivals.app/organizer_for` | Festival IDs user can organize |
+
+#### Permissions
+
+| Claim | Description |
+|-------|-------------|
+| `permissions` | Array of granted API permissions (from RBAC) |
 
 ### Token Refresh
 
@@ -163,25 +237,39 @@ POST /festivals/{festivalId}/api/keys/{keyId}/revoke
 Authorization: Bearer <admin-token>
 ```
 
-## OAuth 2.0
+## OAuth 2.0 (via Auth0)
 
-For third-party applications, we support OAuth 2.0 authorization code flow.
+For third-party applications, we support OAuth 2.0 authorization code flow through Auth0.
 
 ### Authorization URL
 
 ```
-https://auth.festivals.io/authorize?
+https://{AUTH0_DOMAIN}/authorize?
   response_type=code&
   client_id=YOUR_CLIENT_ID&
   redirect_uri=https://yourapp.com/callback&
-  scope=read:wallets write:payments&
+  audience=https://api.festivals.app&
+  scope=openid profile email read:wallets write:payments&
   state=random_state_string
 ```
+
+**Parameters:**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `response_type` | Yes | Use `code` for authorization code flow |
+| `client_id` | Yes | Your Auth0 application client ID |
+| `redirect_uri` | Yes | Must be registered in Auth0 app settings |
+| `audience` | Yes | API identifier: `https://api.festivals.app` |
+| `scope` | Yes | Space-separated list of scopes (include `openid`) |
+| `state` | Recommended | Random string to prevent CSRF attacks |
+| `code_challenge` | Recommended | For PKCE flow (required for mobile/SPA) |
+| `code_challenge_method` | Recommended | Use `S256` for PKCE |
 
 ### Token Exchange
 
 ```bash
-POST https://auth.festivals.io/oauth/token
+POST https://{AUTH0_DOMAIN}/oauth/token
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=authorization_code&
@@ -189,6 +277,50 @@ code=AUTHORIZATION_CODE&
 client_id=YOUR_CLIENT_ID&
 client_secret=YOUR_CLIENT_SECRET&
 redirect_uri=https://yourapp.com/callback
+```
+
+### PKCE Flow (for Mobile/SPA)
+
+For public clients (mobile apps, SPAs), use PKCE:
+
+```bash
+# Generate code verifier (43-128 characters)
+CODE_VERIFIER=$(openssl rand -base64 32 | tr -d '=+/' | cut -c1-43)
+
+# Generate code challenge
+CODE_CHALLENGE=$(echo -n $CODE_VERIFIER | openssl sha256 -binary | base64 | tr -d '=' | tr '+/' '-_')
+
+# Authorization request includes:
+# code_challenge={CODE_CHALLENGE}
+# code_challenge_method=S256
+
+# Token exchange includes:
+# code_verifier={CODE_VERIFIER}
+```
+
+### Machine-to-Machine (M2M) Authentication
+
+For backend services and integrations:
+
+```bash
+POST https://{AUTH0_DOMAIN}/oauth/token
+Content-Type: application/json
+
+{
+  "client_id": "YOUR_M2M_CLIENT_ID",
+  "client_secret": "YOUR_M2M_CLIENT_SECRET",
+  "audience": "https://api.festivals.app",
+  "grant_type": "client_credentials"
+}
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 86400
+}
 ```
 
 ## User Roles
@@ -282,9 +414,165 @@ curl -X GET https://api.festivals.io/v1/me \
 3. Use the "Login" request to obtain a token
 4. Subsequent requests will use the token automatically
 
+## Backend Middleware Implementation
+
+### Auth Middleware Configuration
+
+The Go backend uses the following configuration for Auth0:
+
+```go
+import "festivals/internal/middleware"
+
+// Configure auth middleware
+authConfig := middleware.AuthConfig{
+    Domain:      os.Getenv("AUTH0_DOMAIN"),      // e.g., "festivals.eu.auth0.com"
+    Audiences:   []string{os.Getenv("AUTH0_AUDIENCE")}, // e.g., ["https://api.festivals.app"]
+    Issuer:      "",                              // Auto-generated from domain
+    CacheTTL:    time.Hour,                       // JWKS cache duration
+    RedisClient: redisClient,                     // Optional: for distributed caching
+    Development: os.Getenv("ENVIRONMENT") == "development",
+}
+
+// Apply middleware
+router.Use(middleware.Auth(authConfig))
+```
+
+### Claims Extraction
+
+The middleware extracts claims and makes them available in the request context:
+
+```go
+// In your handler
+func MyHandler(c *gin.Context) {
+    // Get user ID (Auth0 sub claim)
+    userID := middleware.GetUserID(c)
+
+    // Get email
+    email := middleware.GetEmail(c)
+
+    // Get roles (from custom claim)
+    roles := middleware.GetRoles(c)
+
+    // Get permissions (from RBAC)
+    permissions := middleware.GetPermissions(c)
+
+    // Get festival context
+    festivalID := middleware.GetFestivalID(c)
+
+    // Get full claims object
+    claims := middleware.GetClaims(c)
+}
+```
+
+### Permission Checking
+
+```go
+// Check for specific role
+if middleware.HasRole(c, "FESTIVAL_OWNER") {
+    // Allow festival owner actions
+}
+
+// Check for any of multiple roles
+if middleware.HasAnyRole(c, "FESTIVAL_OWNER", "FESTIVAL_ADMIN") {
+    // Allow admin actions
+}
+
+// Check for specific permission
+if middleware.HasPermission(c, "write:festivals") {
+    // Allow festival updates
+}
+```
+
+### Development Mode
+
+In development mode (`ENVIRONMENT=development`), the middleware:
+
+- Accepts tokens without full signature verification
+- Allows testing with self-generated tokens
+- Logs additional debugging information
+
+> **Warning**: Never enable development mode in production.
+
+### Error Handling
+
+The middleware returns structured error responses:
+
+```json
+// 401 Unauthorized
+{
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Authorization header required"
+  }
+}
+
+// Token expired
+{
+  "error": {
+    "code": "TOKEN_EXPIRED",
+    "message": "Token has expired. Please refresh your authentication."
+  }
+}
+```
+
+---
+
+## Security Features
+
+### Brute Force Protection
+
+The backend includes brute force protection for authentication endpoints:
+
+```go
+bfConfig := middleware.BruteForceConfig{
+    RedisClient:        redisClient,
+    MaxAttempts:        5,              // Max failed attempts
+    LockoutDuration:    15 * time.Minute,
+    AttemptWindow:      15 * time.Minute,
+    EnableIPBlocking:   true,
+    EnableUserBlocking: true,
+    ProgressiveLockout: true,           // Double lockout on repeat violations
+}
+
+router.Use(middleware.BruteForceProtection(bfConfig))
+```
+
+### Session Management
+
+For additional security, the backend supports server-side session management:
+
+```go
+sessionConfig := middleware.SessionConfig{
+    RedisClient:     redisClient,
+    SessionDuration: 24 * time.Hour,
+    MaxSessions:     5,                 // Max concurrent sessions per user
+    EnableRotation:  true,              // Rotate session ID on privilege change
+}
+
+sessionManager := middleware.NewSessionManager(sessionConfig)
+```
+
+### Refresh Token Security
+
+Refresh tokens include security features:
+
+- **Token Rotation**: New refresh token on each use
+- **Family Tracking**: Detect token reuse attacks
+- **Automatic Revocation**: Revoke family on suspicious activity
+
+---
+
+## Related Documentation
+
+- [Auth0 Setup Guide](../setup/AUTH0.md) - Complete Auth0 configuration
+- [Auth0 Configuration Reference](../setup/auth0-config.json) - Example configuration
+- [RBAC System](../../backend/internal/domain/auth/README.md) - Role-based access control
+- [Security Documentation](../../backend/docs/security/SECURITY.md) - Security best practices
+
 ## Support
 
 For authentication issues:
 - Check the [Error Codes](./errors.md) documentation
 - Review [Rate Limiting](./rate-limiting.md) for 429 errors
+- Check [Auth0 Logs](https://manage.auth0.com/#/logs) for Auth0-specific issues
 - Contact support@festivals.io for assistance
