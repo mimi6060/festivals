@@ -514,8 +514,143 @@ kubectl exec -it postgres-0 -n festivals-production -- \
 5. **RBAC**: Principle of least privilege
 6. **Image Scanning**: Scan images for vulnerabilities
 
+## Scaling Configuration
+
+### Horizontal Pod Autoscaler (HPA)
+
+The production overlay includes HPA configurations for all services:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: festivals-api-hpa
+  namespace: festivals-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: prod-festivals-api
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+```
+
+### Scaling Thresholds
+
+| Component | Min Replicas | Max Replicas | CPU Target | Memory Target |
+|-----------|--------------|--------------|------------|---------------|
+| API | 3 | 10 | 70% | 80% |
+| Admin | 2 | 6 | 70% | 80% |
+| Worker | 3 | 15 | 60% | 70% |
+
+### Manual Scaling
+
+```bash
+# Scale deployment manually
+kubectl scale deployment prod-festivals-api --replicas=5 -n festivals-production
+
+# Check HPA status
+kubectl get hpa -n festivals-production
+
+# Describe HPA for detailed metrics
+kubectl describe hpa festivals-api-hpa -n festivals-production
+```
+
+### Custom Metrics Scaling with KEDA
+
+For queue-based scaling:
+
+```yaml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: festivals-worker-scaler
+  namespace: festivals-production
+spec:
+  scaleTargetRef:
+    name: prod-festivals-worker
+  minReplicaCount: 2
+  maxReplicaCount: 20
+  triggers:
+    - type: redis
+      metadata:
+        address: redis-master.databases.svc.cluster.local:6379
+        listName: asynq:{default}:pending
+        listLength: "100"
+```
+
+### Pod Disruption Budget
+
+Ensure high availability during updates:
+
+```yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: festivals-api-pdb
+  namespace: festivals-production
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: festivals
+      app.kubernetes.io/component: api
+```
+
+### Resource Recommendations
+
+**Development/Staging:**
+
+| Component | CPU Request | Memory Request | CPU Limit | Memory Limit |
+|-----------|-------------|----------------|-----------|--------------|
+| API | 100m | 128Mi | 500m | 512Mi |
+| Admin | 100m | 256Mi | 500m | 512Mi |
+| Worker | 200m | 256Mi | 1000m | 1Gi |
+
+**Production:**
+
+| Component | CPU Request | Memory Request | CPU Limit | Memory Limit |
+|-----------|-------------|----------------|-----------|--------------|
+| API | 250m | 256Mi | 1000m | 1Gi |
+| Admin | 100m | 256Mi | 500m | 512Mi |
+| Worker | 500m | 512Mi | 2000m | 2Gi |
+
 ## Next Steps
 
-- [Scaling Guide](./scaling.md) - Auto-scaling configuration
+- [Scaling Guide](./scaling.md) - Advanced auto-scaling configuration
 - [Monitoring Setup](./monitoring.md) - Prometheus/Grafana setup
 - [Security Hardening](./security.md) - Security best practices

@@ -198,11 +198,18 @@ func TeardownTestSuite(t *testing.T) {
 func (s *TestSuite) CleanupDatabase(t *testing.T) {
 	// Clean tables in correct order (respecting foreign key constraints)
 	tables := []string{
+		"orders",
 		"ticket_scans",
 		"tickets",
 		"ticket_types",
 		"transactions",
 		"wallets",
+		"products",
+		"stands",
+		"role_assignments",
+		"role_permissions",
+		"roles",
+		"permissions",
 		"public.festivals",
 		"public.users",
 	}
@@ -363,6 +370,136 @@ func runMigrations(db *gorm.DB) error {
 		return fmt.Errorf("failed to create ticket_scans table: %w", err)
 	}
 
+	// Create permissions table
+	if err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS public.permissions (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			resource VARCHAR(50) NOT NULL,
+			action VARCHAR(50) NOT NULL,
+			scope VARCHAR(50) DEFAULT 'festival',
+			description TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(resource, action)
+		)
+	`).Error; err != nil {
+		return fmt.Errorf("failed to create permissions table: %w", err)
+	}
+
+	// Create roles table
+	if err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS public.roles (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			name VARCHAR(100) NOT NULL,
+			display_name VARCHAR(100) NOT NULL,
+			description TEXT,
+			type VARCHAR(20) DEFAULT 'custom',
+			festival_id UUID REFERENCES public.festivals(id),
+			is_active BOOLEAN DEFAULT true,
+			priority INTEGER DEFAULT 0,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(name, festival_id)
+		)
+	`).Error; err != nil {
+		return fmt.Errorf("failed to create roles table: %w", err)
+	}
+
+	// Create role_permissions table
+	if err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS public.role_permissions (
+			role_id UUID REFERENCES public.roles(id) ON DELETE CASCADE,
+			permission_id UUID REFERENCES public.permissions(id) ON DELETE CASCADE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY(role_id, permission_id)
+		)
+	`).Error; err != nil {
+		return fmt.Errorf("failed to create role_permissions table: %w", err)
+	}
+
+	// Create role_assignments table
+	if err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS public.role_assignments (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id UUID NOT NULL REFERENCES public.users(id),
+			role_id UUID NOT NULL REFERENCES public.roles(id),
+			festival_id UUID REFERENCES public.festivals(id),
+			stand_id UUID,
+			assigned_by UUID NOT NULL,
+			assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			expires_at TIMESTAMP,
+			is_active BOOLEAN DEFAULT true,
+			notes TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, role_id, festival_id)
+		)
+	`).Error; err != nil {
+		return fmt.Errorf("failed to create role_assignments table: %w", err)
+	}
+
+	// Create stands table
+	if err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS stands (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			festival_id UUID NOT NULL REFERENCES public.festivals(id),
+			name VARCHAR(255) NOT NULL,
+			description TEXT,
+			category VARCHAR(100),
+			location VARCHAR(255),
+			image_url VARCHAR(500),
+			status VARCHAR(50) DEFAULT 'ACTIVE',
+			settings JSONB DEFAULT '{}',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`).Error; err != nil {
+		return fmt.Errorf("failed to create stands table: %w", err)
+	}
+
+	// Create products table
+	if err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS products (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			stand_id UUID NOT NULL REFERENCES stands(id),
+			name VARCHAR(255) NOT NULL,
+			description TEXT,
+			price BIGINT NOT NULL,
+			category VARCHAR(100),
+			image_url VARCHAR(500),
+			sku VARCHAR(100),
+			stock INTEGER,
+			sort_order INTEGER DEFAULT 0,
+			status VARCHAR(50) DEFAULT 'ACTIVE',
+			tags TEXT[],
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`).Error; err != nil {
+		return fmt.Errorf("failed to create products table: %w", err)
+	}
+
+	// Create orders table
+	if err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS orders (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			festival_id UUID NOT NULL REFERENCES public.festivals(id),
+			user_id UUID NOT NULL,
+			wallet_id UUID NOT NULL REFERENCES wallets(id),
+			stand_id UUID NOT NULL REFERENCES stands(id),
+			items JSONB NOT NULL,
+			total_amount BIGINT NOT NULL,
+			status VARCHAR(50) DEFAULT 'PENDING',
+			payment_method VARCHAR(50) NOT NULL,
+			transaction_id UUID REFERENCES transactions(id),
+			staff_id UUID,
+			notes TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`).Error; err != nil {
+		return fmt.Errorf("failed to create orders table: %w", err)
+	}
+
 	// Create indexes
 	indexes := []string{
 		"CREATE INDEX IF NOT EXISTS idx_wallets_user_id ON wallets(user_id)",
@@ -373,6 +510,14 @@ func runMigrations(db *gorm.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id)",
 		"CREATE INDEX IF NOT EXISTS idx_tickets_code ON tickets(code)",
 		"CREATE INDEX IF NOT EXISTS idx_ticket_scans_ticket_id ON ticket_scans(ticket_id)",
+		"CREATE INDEX IF NOT EXISTS idx_orders_festival_id ON orders(festival_id)",
+		"CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_orders_stand_id ON orders(stand_id)",
+		"CREATE INDEX IF NOT EXISTS idx_orders_wallet_id ON orders(wallet_id)",
+		"CREATE INDEX IF NOT EXISTS idx_products_stand_id ON products(stand_id)",
+		"CREATE INDEX IF NOT EXISTS idx_stands_festival_id ON stands(festival_id)",
+		"CREATE INDEX IF NOT EXISTS idx_role_assignments_user_id ON public.role_assignments(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_role_assignments_role_id ON public.role_assignments(role_id)",
 	}
 
 	for _, idx := range indexes {
@@ -482,7 +627,11 @@ func testTenantMiddleware(db *gorm.DB) gin.HandlerFunc {
 
 // RequireAuth middleware ensures a user is authenticated for tests
 func RequireAuth() gin.HandlerFunc {
-	return middleware.Auth("test-domain", "test-audience")
+	return middleware.Auth(middleware.AuthConfig{
+		Domain:      "test.auth0.com",
+		Audiences:   []string{"test-api"},
+		Development: true,
+	})
 }
 
 // TestMain is the entry point for tests

@@ -72,6 +72,30 @@ export interface StockSummary {
   activeAlerts: number;
 }
 
+export interface StockMovement {
+  id: string;
+  productId: string;
+  productName: string;
+  standId: string;
+  type: MovementType;
+  quantity: number;
+  previousQty: number;
+  newQty: number;
+  reason?: string;
+  createdAt: string;
+  createdBy?: string;
+}
+
+export interface CountHistory {
+  id: string;
+  standId: string;
+  standName?: string;
+  completedAt: string;
+  totalItems: number;
+  itemsWithVariance: number;
+  totalVariance: number;
+}
+
 interface InventoryState {
   // Stand inventory
   items: InventoryItem[];
@@ -87,6 +111,10 @@ interface InventoryState {
   // Current count session
   currentCount: InventoryCount | null;
   countItems: InventoryCountItem[];
+
+  // Movement history
+  movements: StockMovement[];
+  countHistory: CountHistory[];
 
   // Actions
   setItems: (items: InventoryItem[]) => void;
@@ -104,9 +132,19 @@ interface InventoryState {
   // Stock operations
   adjustStock: (productId: string, delta: number, type: MovementType, reason?: string) => Promise<boolean>;
 
+  // Search
+  searchProducts: (query: string) => InventoryItem[];
+  getProductById: (productId: string) => InventoryItem | undefined;
+  getProductBySku: (sku: string) => InventoryItem | undefined;
+
+  // Alert management
+  acknowledgeAlert: (alertId: string) => void;
+  resolveAlert: (alertId: string) => void;
+
   // Load data
   loadStandInventory: (standId: string) => Promise<void>;
   loadAlerts: (standId: string) => Promise<void>;
+  loadMovements: (standId: string) => Promise<void>;
 
   // Reset
   reset: () => void;
@@ -219,6 +257,8 @@ export const useInventoryStore = create<InventoryState>()(
       summary: null,
       currentCount: null,
       countItems: [],
+      movements: [],
+      countHistory: [],
 
       setItems: (items) => set({ items }),
       setAlerts: (alerts) => set({ alerts }),
@@ -251,10 +291,19 @@ export const useInventoryStore = create<InventoryState>()(
         const state = get();
         if (!state.currentCount) return;
 
+        // Calculate variance statistics
+        let itemsWithVariance = 0;
+        let totalVariance = 0;
+
         // Update inventory items based on count
         const updatedItems = state.items.map((item) => {
           const countItem = state.countItems.find((ci) => ci.inventoryItemId === item.id);
           if (countItem && countItem.countedQty !== undefined) {
+            const variance = countItem.countedQty - item.quantity;
+            if (variance !== 0) {
+              itemsWithVariance++;
+              totalVariance += variance;
+            }
             return {
               ...item,
               quantity: countItem.countedQty,
@@ -266,10 +315,22 @@ export const useInventoryStore = create<InventoryState>()(
           return item;
         });
 
+        // Add to count history
+        const historyEntry: CountHistory = {
+          id: state.currentCount.id,
+          standId: state.currentCount.standId,
+          standName: state.currentCount.standName,
+          completedAt: new Date().toISOString(),
+          totalItems: state.countItems.length,
+          itemsWithVariance,
+          totalVariance,
+        };
+
         set({
           items: updatedItems,
           currentCount: null,
           countItems: [],
+          countHistory: [historyEntry, ...state.countHistory].slice(0, 50), // Keep last 50
         });
       },
 
@@ -286,10 +347,33 @@ export const useInventoryStore = create<InventoryState>()(
           // Simulate API call
           await new Promise((resolve) => setTimeout(resolve, 500));
 
+          const state = get();
+          const item = state.items.find((i) => i.productId === productId);
+          if (!item) {
+            set({ error: 'Produit non trouve', isLoading: false });
+            return false;
+          }
+
+          const previousQty = item.quantity;
+          const newQty = Math.max(0, previousQty + delta);
+
+          // Create movement record
+          const movement: StockMovement = {
+            id: `mov-${Date.now()}`,
+            productId,
+            productName: item.productName,
+            standId: item.standId,
+            type,
+            quantity: Math.abs(delta),
+            previousQty,
+            newQty,
+            reason,
+            createdAt: new Date().toISOString(),
+          };
+
           set((state) => ({
             items: state.items.map((item) => {
               if (item.productId === productId) {
-                const newQty = Math.max(0, item.quantity + delta);
                 return {
                   ...item,
                   quantity: newQty,
@@ -300,6 +384,7 @@ export const useInventoryStore = create<InventoryState>()(
               }
               return item;
             }),
+            movements: [movement, ...state.movements].slice(0, 100), // Keep last 100
             isLoading: false,
           }));
 
@@ -320,6 +405,46 @@ export const useInventoryStore = create<InventoryState>()(
           set({ error: 'Erreur lors de l\'ajustement du stock', isLoading: false });
           return false;
         }
+      },
+
+      // Search products
+      searchProducts: (query: string) => {
+        const state = get();
+        const lowerQuery = query.toLowerCase().trim();
+        if (!lowerQuery) return state.items;
+
+        return state.items.filter(
+          (item) =>
+            item.productName.toLowerCase().includes(lowerQuery) ||
+            item.productSku?.toLowerCase().includes(lowerQuery)
+        );
+      },
+
+      getProductById: (productId: string) => {
+        return get().items.find((item) => item.productId === productId);
+      },
+
+      getProductBySku: (sku: string) => {
+        return get().items.find(
+          (item) => item.productSku?.toLowerCase() === sku.toLowerCase()
+        );
+      },
+
+      // Alert management
+      acknowledgeAlert: (alertId: string) => {
+        set((state) => ({
+          alerts: state.alerts.map((alert) =>
+            alert.id === alertId ? { ...alert, status: 'ACKNOWLEDGED' as AlertStatus } : alert
+          ),
+        }));
+      },
+
+      resolveAlert: (alertId: string) => {
+        set((state) => ({
+          alerts: state.alerts.map((alert) =>
+            alert.id === alertId ? { ...alert, status: 'RESOLVED' as AlertStatus } : alert
+          ),
+        }));
       },
 
       loadStandInventory: async (standId) => {
@@ -357,6 +482,16 @@ export const useInventoryStore = create<InventoryState>()(
         }
       },
 
+      loadMovements: async (standId) => {
+        try {
+          // Simulate API call - in real app, would fetch from backend
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          // Movements are stored locally, no mock data needed
+        } catch (error) {
+          console.error('Error loading movements:', error);
+        }
+      },
+
       reset: () =>
         set({
           items: [],
@@ -366,6 +501,8 @@ export const useInventoryStore = create<InventoryState>()(
           summary: null,
           currentCount: null,
           countItems: [],
+          movements: [],
+          countHistory: [],
         }),
     }),
     {
@@ -374,6 +511,8 @@ export const useInventoryStore = create<InventoryState>()(
       partialize: (state) => ({
         currentCount: state.currentCount,
         countItems: state.countItems,
+        movements: state.movements,
+        countHistory: state.countHistory,
       }),
     }
   )

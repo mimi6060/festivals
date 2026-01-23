@@ -10,6 +10,7 @@ import {
   Bell,
   Puzzle,
   Shield,
+  FileText,
   ChevronRight,
   LucideIcon,
 } from 'lucide-react'
@@ -61,6 +62,12 @@ export function SettingsLayout({ festivalId, festivalName, children }: SettingsL
       label: 'Roles & Permissions',
       description: 'Access control and user roles',
       icon: Shield,
+    },
+    {
+      href: `/festivals/${festivalId}/settings/audit`,
+      label: 'Audit Logs',
+      description: 'Activity history and tracking',
+      icon: FileText,
     },
   ]
 

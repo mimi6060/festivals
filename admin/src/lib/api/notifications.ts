@@ -96,6 +96,73 @@ export interface GlobalSettings {
   }
 }
 
+// Festival-specific notification settings
+export interface FestivalNotificationSettings {
+  // Email settings
+  email: {
+    enabled: boolean
+    fromName: string
+    fromEmail: string
+    replyToEmail?: string
+    sendTicketConfirmation: boolean
+    sendWalletAlerts: boolean
+    sendLineupUpdates: boolean
+    sendReminders: boolean
+  }
+  // SMS settings
+  sms: {
+    enabled: boolean
+    senderId?: string
+    sendEmergencyAlerts: boolean
+    sendEventReminders: boolean
+    sendWalletNotifications: boolean
+    dailyLimit?: number
+    optInRequired: boolean
+  }
+  // Push notification settings
+  push: {
+    enabled: boolean
+    sendScheduleReminders: boolean
+    sendArtistAlerts: boolean
+    sendWalletNotifications: boolean
+    sendEmergencyAlerts: boolean
+    quietHoursEnabled: boolean
+    quietHoursStart?: string // HH:mm format
+    quietHoursEnd?: string // HH:mm format
+  }
+}
+
+export interface UpdateNotificationSettingsInput {
+  email?: Partial<FestivalNotificationSettings['email']>
+  sms?: Partial<FestivalNotificationSettings['sms']>
+  push?: Partial<FestivalNotificationSettings['push']>
+}
+
+export interface TestPushInput {
+  deviceToken?: string
+  userId?: string
+  title: string
+  body: string
+  data?: Record<string, string>
+}
+
+export interface TestPushResult {
+  success: boolean
+  messageId?: string
+  error?: string
+}
+
+export interface TestSMSInput {
+  phoneNumber: string
+  message: string
+}
+
+export interface TestSMSResult {
+  success: boolean
+  messageSid?: string
+  error?: string
+}
+
 // Default template variables by category
 export const defaultVariables: Record<TemplateCategory, TemplateVariable[]> = {
   ticket: [
@@ -338,5 +405,46 @@ export const notificationsApi = {
     recipientEmail: string
   ): Promise<TestEmailResult> => {
     return api.post<TestEmailResult>('/api/v1/admin/settings/email/test', { recipientEmail })
+  },
+
+  // Festival-specific notification settings
+  getFestivalSettings: async (
+    festivalId: string
+  ): Promise<FestivalNotificationSettings> => {
+    return api.get<FestivalNotificationSettings>(
+      `/api/v1/festivals/${festivalId}/notifications/settings`
+    )
+  },
+
+  updateFestivalSettings: async (
+    festivalId: string,
+    settings: UpdateNotificationSettingsInput
+  ): Promise<FestivalNotificationSettings> => {
+    return api.patch<FestivalNotificationSettings>(
+      `/api/v1/festivals/${festivalId}/notifications/settings`,
+      settings
+    )
+  },
+
+  // Test push notification
+  testPush: async (
+    festivalId: string,
+    data: TestPushInput
+  ): Promise<TestPushResult> => {
+    return api.post<TestPushResult>(
+      `/api/v1/festivals/${festivalId}/notifications/test-push`,
+      data
+    )
+  },
+
+  // Test SMS
+  testSMS: async (
+    festivalId: string,
+    data: TestSMSInput
+  ): Promise<TestSMSResult> => {
+    return api.post<TestSMSResult>(
+      `/api/v1/festivals/${festivalId}/notifications/test-sms`,
+      data
+    )
   },
 }

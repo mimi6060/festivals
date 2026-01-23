@@ -47,11 +47,16 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 // CreateTicketType creates a new ticket type
 // @Summary Create a new ticket type
+// @Description Create a new ticket type for a festival with pricing, quantity, and validity settings
 // @Tags ticket-types
 // @Accept json
 // @Produce json
 // @Param request body CreateTicketTypeRequest true "Ticket type data"
-// @Success 201 {object} TicketTypeResponse
+// @Success 201 {object} response.Response{data=TicketTypeResponse} "Ticket type created"
+// @Failure 400 {object} response.ErrorResponse "Invalid request body"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /ticket-types [post]
 func (h *Handler) CreateTicketType(c *gin.Context) {
 	festivalID, err := getFestivalID(c)
@@ -77,12 +82,17 @@ func (h *Handler) CreateTicketType(c *gin.Context) {
 
 // ListTicketTypes returns ticket types for a festival
 // @Summary List ticket types
+// @Description Get paginated list of ticket types for a festival
 // @Tags ticket-types
 // @Produce json
-// @Param festivalId query string true "Festival ID"
+// @Param festivalId query string true "Festival ID" format(uuid)
 // @Param page query int false "Page number" default(1)
 // @Param per_page query int false "Items per page" default(20)
-// @Success 200 {array} TicketTypeResponse
+// @Success 200 {object} response.Response{data=[]TicketTypeResponse,meta=response.Meta} "Ticket type list"
+// @Failure 400 {object} response.ErrorResponse "Invalid festival ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /ticket-types [get]
 func (h *Handler) ListTicketTypes(c *gin.Context) {
 	festivalID, err := getFestivalID(c)
@@ -114,10 +124,16 @@ func (h *Handler) ListTicketTypes(c *gin.Context) {
 
 // GetTicketType returns a ticket type by ID
 // @Summary Get ticket type by ID
+// @Description Get detailed information about a specific ticket type
 // @Tags ticket-types
 // @Produce json
-// @Param id path string true "Ticket Type ID"
-// @Success 200 {object} TicketTypeResponse
+// @Param id path string true "Ticket Type ID" format(uuid)
+// @Success 200 {object} response.Response{data=TicketTypeResponse} "Ticket type details"
+// @Failure 400 {object} response.ErrorResponse "Invalid ticket type ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Ticket type not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /ticket-types/{id} [get]
 func (h *Handler) GetTicketType(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
@@ -141,12 +157,18 @@ func (h *Handler) GetTicketType(c *gin.Context) {
 
 // UpdateTicketType updates a ticket type
 // @Summary Update ticket type
+// @Description Update an existing ticket type with partial data
 // @Tags ticket-types
 // @Accept json
 // @Produce json
-// @Param id path string true "Ticket Type ID"
+// @Param id path string true "Ticket Type ID" format(uuid)
 // @Param request body UpdateTicketTypeRequest true "Update data"
-// @Success 200 {object} TicketTypeResponse
+// @Success 200 {object} response.Response{data=TicketTypeResponse} "Updated ticket type"
+// @Failure 400 {object} response.ErrorResponse "Invalid request"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Ticket type not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /ticket-types/{id} [patch]
 func (h *Handler) UpdateTicketType(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
@@ -176,9 +198,15 @@ func (h *Handler) UpdateTicketType(c *gin.Context) {
 
 // DeleteTicketType deletes a ticket type
 // @Summary Delete ticket type
+// @Description Permanently delete a ticket type. Cannot delete if tickets have been sold.
 // @Tags ticket-types
-// @Param id path string true "Ticket Type ID"
-// @Success 204
+// @Param id path string true "Ticket Type ID" format(uuid)
+// @Success 204 "Ticket type deleted"
+// @Failure 400 {object} response.ErrorResponse "Cannot delete with existing tickets"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Ticket type not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /ticket-types/{id} [delete]
 func (h *Handler) DeleteTicketType(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
@@ -205,11 +233,17 @@ func (h *Handler) DeleteTicketType(c *gin.Context) {
 
 // CreateTicket creates a new individual ticket
 // @Summary Create a new ticket
+// @Description Create an individual ticket of a specific type
 // @Tags tickets
 // @Accept json
 // @Produce json
 // @Param request body CreateTicketRequest true "Ticket data"
-// @Success 201 {object} TicketResponse
+// @Success 201 {object} response.Response{data=TicketResponse} "Ticket created"
+// @Failure 400 {object} response.ErrorResponse "Invalid request or sold out"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Ticket type not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /tickets [post]
 func (h *Handler) CreateTicket(c *gin.Context) {
 	festivalID, err := getFestivalID(c)
@@ -362,11 +396,16 @@ func (h *Handler) GetTicketByCode(c *gin.Context) {
 
 // ScanTicket validates and scans a ticket (for entry/exit)
 // @Summary Scan/validate ticket
+// @Description Scan a ticket for entry or exit validation. Returns scan result with success status.
 // @Tags tickets
 // @Accept json
 // @Produce json
 // @Param request body ScanTicketRequest true "Scan data"
-// @Success 200 {object} ScanResponse
+// @Success 200 {object} response.Response{data=ScanResponse} "Scan result"
+// @Failure 400 {object} response.ErrorResponse "Invalid request"
+// @Failure 401 {object} response.ErrorResponse "Staff authentication required"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /tickets/scan [post]
 func (h *Handler) ScanTicket(c *gin.Context) {
 	festivalID, err := getFestivalID(c)
@@ -425,12 +464,19 @@ func (h *Handler) ScanTicket(c *gin.Context) {
 
 // TransferTicket transfers a ticket to another person
 // @Summary Transfer ticket
+// @Description Transfer a ticket to another person. Subject to ticket type transfer rules.
 // @Tags tickets
 // @Accept json
 // @Produce json
-// @Param id path string true "Ticket ID"
+// @Param id path string true "Ticket ID" format(uuid)
 // @Param request body TransferTicketRequest true "Transfer data"
-// @Success 200 {object} TicketResponse
+// @Success 200 {object} response.Response{data=TicketResponse} "Transferred ticket"
+// @Failure 400 {object} response.ErrorResponse "Transfer not allowed or max transfers exceeded"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 403 {object} response.ErrorResponse "You do not own this ticket"
+// @Failure 404 {object} response.ErrorResponse "Ticket not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /tickets/{id}/transfer [post]
 func (h *Handler) TransferTicket(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
@@ -485,13 +531,17 @@ func (h *Handler) TransferTicket(c *gin.Context) {
 
 // GetMyTickets returns tickets for the current authenticated user
 // @Summary Get current user's tickets
+// @Description Get paginated list of tickets belonging to the authenticated user
 // @Tags tickets
 // @Produce json
-// @Param festivalId query string false "Filter by festival ID"
-// @Param status query string false "Filter by status"
+// @Param festivalId query string false "Filter by festival ID" format(uuid)
+// @Param status query string false "Filter by status" Enums(VALID, USED, EXPIRED, CANCELLED, TRANSFERRED)
 // @Param page query int false "Page number" default(1)
 // @Param per_page query int false "Items per page" default(20)
-// @Success 200 {array} TicketResponse
+// @Success 200 {object} response.Response{data=[]TicketResponse,meta=response.Meta} "User's tickets"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
 // @Router /me/tickets [get]
 func (h *Handler) GetMyTickets(c *gin.Context) {
 	userID, err := getUserID(c)

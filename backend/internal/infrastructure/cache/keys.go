@@ -22,6 +22,7 @@ const (
 	PrefixTransaction = "transaction"
 	PrefixSession     = "session"
 	PrefixStats       = "stats"
+	PrefixSearch      = "search"
 )
 
 // KeyBuilder provides methods to build consistent cache keys
@@ -242,6 +243,41 @@ func (k *KeyBuilder) StatsFestivalPattern(festivalID uuid.UUID) string {
 	return k.base(PrefixStats, "*", festivalID.String(), "*")
 }
 
+// --- Search Keys ---
+
+// SearchKey returns the cache key for a search query
+func (k *KeyBuilder) SearchKey(festivalID *uuid.UUID, searchType, query string, page, perPage int) string {
+	festivalPart := "global"
+	if festivalID != nil {
+		festivalPart = festivalID.String()
+	}
+	return k.base(PrefixSearch, festivalPart, searchType, query, fmt.Sprintf("p%d-pp%d", page, perPage))
+}
+
+// SearchSuggestionsKey returns the cache key for search suggestions
+func (k *KeyBuilder) SearchSuggestionsKey(festivalID *uuid.UUID, query string) string {
+	festivalPart := "global"
+	if festivalID != nil {
+		festivalPart = festivalID.String()
+	}
+	return k.base(PrefixSearch, "suggestions", festivalPart, query)
+}
+
+// SearchPattern returns a pattern to match all search keys
+func (k *KeyBuilder) SearchPattern() string {
+	return k.base(PrefixSearch, "*")
+}
+
+// SearchFestivalPattern returns a pattern to match all search keys for a festival
+func (k *KeyBuilder) SearchFestivalPattern(festivalID uuid.UUID) string {
+	return k.base(PrefixSearch, festivalID.String(), "*")
+}
+
+// SearchGlobalPattern returns a pattern to match all global search keys
+func (k *KeyBuilder) SearchGlobalPattern() string {
+	return k.base(PrefixSearch, "global", "*")
+}
+
 // --- Helper Functions ---
 
 // DefaultKeyBuilder returns a KeyBuilder with the default "festivals" prefix
@@ -275,4 +311,12 @@ func TicketKey(id uuid.UUID) string {
 
 func SessionKey(sessionID string) string {
 	return DefaultKeyBuilder.SessionKey(sessionID)
+}
+
+func SearchKey(festivalID *uuid.UUID, searchType, query string, page, perPage int) string {
+	return DefaultKeyBuilder.SearchKey(festivalID, searchType, query, page, perPage)
+}
+
+func SearchSuggestionsKey(festivalID *uuid.UUID, query string) string {
+	return DefaultKeyBuilder.SearchSuggestionsKey(festivalID, query)
 }

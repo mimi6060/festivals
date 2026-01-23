@@ -88,6 +88,9 @@ interface SocialState {
   toggleLocationSharing: (friendId: string, enabled: boolean) => Promise<void>;
   getFriendById: (friendId: string) => Friend | undefined;
   searchUsers: (query: string) => Promise<{ id: string; name: string; username: string; avatarUrl?: string }[]>;
+  cancelSentRequest: (requestId: string) => Promise<void>;
+  getFriendsAtFestival: () => Friend[];
+  getOnlineFriends: () => Friend[];
 }
 
 // Mock API delay
@@ -443,6 +446,29 @@ export const useSocialStore = create<SocialState>()(
             u.name.toLowerCase().includes(query.toLowerCase()) ||
             u.username.toLowerCase().includes(query.toLowerCase())
         );
+      },
+
+      cancelSentRequest: async (requestId) => {
+        try {
+          await mockDelay(300);
+          // In real implementation:
+          // await api.delete(`/social/requests/${requestId}`);
+
+          set((state) => ({
+            sentRequests: state.sentRequests.filter((r) => r.id !== requestId),
+          }));
+        } catch (error) {
+          console.error('Failed to cancel sent request:', error);
+          throw error;
+        }
+      },
+
+      getFriendsAtFestival: () => {
+        return get().friends.filter((f) => f.status === 'AT_FESTIVAL');
+      },
+
+      getOnlineFriends: () => {
+        return get().friends.filter((f) => f.status === 'ONLINE' || f.status === 'AT_FESTIVAL');
       },
     }),
     {

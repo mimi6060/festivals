@@ -48,6 +48,34 @@ export default function RootLayout() {
         />
         <Stack.Screen name="sos" options={{ presentation: 'modal' }} />
         <Stack.Screen name="wallet" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="scan"
+          options={{
+            headerShown: false,
+            presentation: 'fullScreenModal',
+          }}
+        />
+        <Stack.Screen
+          name="friends/index"
+          options={{
+            headerShown: true,
+            title: 'Amis',
+          }}
+        />
+        <Stack.Screen
+          name="friends/[id]"
+          options={{
+            headerShown: true,
+            title: 'Profil',
+          }}
+        />
+        <Stack.Screen
+          name="friends/add"
+          options={{
+            headerShown: true,
+            title: 'Ajouter un ami',
+          }}
+        />
       </Stack>
     </>
   );

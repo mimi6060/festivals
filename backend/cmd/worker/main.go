@@ -215,7 +215,7 @@ func main() {
 func registerPeriodicTasks(scheduler *queue.Scheduler) {
 	// Cleanup expired sessions every hour
 	cleanupSessionsTask := asynq.NewTask(queue.TypeCleanupExpiredSessions, nil)
-	if _, err := scheduler.RegisterPeriodicTask("0 * * * *", cleanupSessionsTask); err != nil {
+	if _, err := scheduler.RegisterPeriodicTask("0 * * * *", cleanupSessionsTask, asynq.Queue(queue.QueueLow)); err != nil {
 		log.Error().Err(err).Msg("Failed to register cleanup sessions task")
 	} else {
 		log.Info().Msg("Registered periodic task: cleanup expired sessions (hourly)")
@@ -223,7 +223,7 @@ func registerPeriodicTasks(scheduler *queue.Scheduler) {
 
 	// Cleanup temporary files every 6 hours
 	cleanupTempFilesTask := asynq.NewTask(queue.TypeCleanupTempFiles, nil)
-	if _, err := scheduler.RegisterPeriodicTask("0 */6 * * *", cleanupTempFilesTask); err != nil {
+	if _, err := scheduler.RegisterPeriodicTask("0 */6 * * *", cleanupTempFilesTask, asynq.Queue(queue.QueueLow)); err != nil {
 		log.Error().Err(err).Msg("Failed to register cleanup temp files task")
 	} else {
 		log.Info().Msg("Registered periodic task: cleanup temp files (every 6 hours)")
@@ -231,7 +231,7 @@ func registerPeriodicTasks(scheduler *queue.Scheduler) {
 
 	// Cleanup expired QR codes daily at 3 AM
 	cleanupQRCodesTask := asynq.NewTask(queue.TypeCleanupExpiredQRCodes, nil)
-	if _, err := scheduler.RegisterPeriodicTask("0 3 * * *", cleanupQRCodesTask); err != nil {
+	if _, err := scheduler.RegisterPeriodicTask("0 3 * * *", cleanupQRCodesTask, asynq.Queue(queue.QueueLow)); err != nil {
 		log.Error().Err(err).Msg("Failed to register cleanup QR codes task")
 	} else {
 		log.Info().Msg("Registered periodic task: cleanup expired QR codes (daily at 3 AM)")
@@ -239,7 +239,7 @@ func registerPeriodicTasks(scheduler *queue.Scheduler) {
 
 	// Archive old transactions weekly on Sunday at 4 AM
 	archiveTransactionsTask := asynq.NewTask(queue.TypeArchiveOldTransactions, nil)
-	if _, err := scheduler.RegisterPeriodicTask("0 4 * * 0", archiveTransactionsTask); err != nil {
+	if _, err := scheduler.RegisterPeriodicTask("0 4 * * 0", archiveTransactionsTask, asynq.Queue(queue.QueueLow), asynq.Timeout(2*time.Hour)); err != nil {
 		log.Error().Err(err).Msg("Failed to register archive transactions task")
 	} else {
 		log.Info().Msg("Registered periodic task: archive old transactions (weekly on Sunday at 4 AM)")
@@ -247,10 +247,34 @@ func registerPeriodicTasks(scheduler *queue.Scheduler) {
 
 	// Process analytics aggregation every 15 minutes
 	analyticsTask := asynq.NewTask(queue.TypeProcessAnalytics, nil)
-	if _, err := scheduler.RegisterPeriodicTask("*/15 * * * *", analyticsTask); err != nil {
+	if _, err := scheduler.RegisterPeriodicTask("*/15 * * * *", analyticsTask, asynq.Queue(queue.QueueLow)); err != nil {
 		log.Error().Err(err).Msg("Failed to register analytics processing task")
 	} else {
 		log.Info().Msg("Registered periodic task: process analytics (every 15 minutes)")
+	}
+
+	// Cleanup old reports weekly on Monday at 2 AM
+	cleanupReportsTask := asynq.NewTask(queue.TypeCleanupOldReports, nil)
+	if _, err := scheduler.RegisterPeriodicTask("0 2 * * 1", cleanupReportsTask, asynq.Queue(queue.QueueLow)); err != nil {
+		log.Error().Err(err).Msg("Failed to register cleanup old reports task")
+	} else {
+		log.Info().Msg("Registered periodic task: cleanup old reports (weekly on Monday at 2 AM)")
+	}
+
+	// Cleanup inactive wallets monthly on the 1st at 5 AM
+	cleanupWalletsTask := asynq.NewTask(queue.TypeCleanupInactiveWallets, nil)
+	if _, err := scheduler.RegisterPeriodicTask("0 5 1 * *", cleanupWalletsTask, asynq.Queue(queue.QueueLow), asynq.Timeout(1*time.Hour)); err != nil {
+		log.Error().Err(err).Msg("Failed to register cleanup inactive wallets task")
+	} else {
+		log.Info().Msg("Registered periodic task: cleanup inactive wallets (monthly on 1st at 5 AM)")
+	}
+
+	// Daily analytics aggregation at midnight
+	dailyAnalyticsTask := asynq.NewTask(queue.TypeAggregateAnalytics, nil)
+	if _, err := scheduler.RegisterPeriodicTask("0 0 * * *", dailyAnalyticsTask, asynq.Queue(queue.QueueLow), asynq.Timeout(30*time.Minute)); err != nil {
+		log.Error().Err(err).Msg("Failed to register daily analytics aggregation task")
+	} else {
+		log.Info().Msg("Registered periodic task: daily analytics aggregation (daily at midnight)")
 	}
 }
 

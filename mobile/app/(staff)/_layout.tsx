@@ -85,6 +85,61 @@ export default function StaffLayout() {
           headerTitle: 'Comptage inventaire',
         }}
       />
+      <Tabs.Screen
+        name="inventory/adjust"
+        options={{
+          href: null,
+          headerTitle: 'Ajustement stock',
+        }}
+      />
+      <Tabs.Screen
+        name="recharge"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="recharge/scan"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="recharge/confirm"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="scan-ticket"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="nfc"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="nfc/activate"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="nfc/payment"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="nfc/info"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

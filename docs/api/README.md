@@ -362,18 +362,37 @@ Download the OpenAPI 3.0 specification:
 
 ## API Documentation Files
 
+### Endpoint Documentation
+
 | Document | Description |
 |----------|-------------|
-| [festivals.md](./festivals.md) | Festival management endpoints |
-| [wallets.md](./wallets.md) | Wallet and payment endpoints |
-| [tickets.md](./tickets.md) | Ticket management endpoints |
-| [stands.md](./stands.md) | Stand/vendor endpoints |
-| [products.md](./products.md) | Product management endpoints |
+| [endpoints/festivals.md](./endpoints/festivals.md) | Festival management endpoints |
+| [endpoints/wallets.md](./endpoints/wallets.md) | Wallet and payment endpoints |
+| [endpoints/tickets.md](./endpoints/tickets.md) | Ticket management endpoints |
+| [endpoints/stands.md](./endpoints/stands.md) | Stand/vendor endpoints |
+| [endpoints/products.md](./endpoints/products.md) | Product management endpoints |
+| [endpoints/orders.md](./endpoints/orders.md) | Order management endpoints |
+
+### Legacy Endpoint Docs (Detailed)
+
+| Document | Description |
+|----------|-------------|
+| [festivals.md](./festivals.md) | Festival management (detailed) |
+| [wallets.md](./wallets.md) | Wallet and payments (detailed) |
+| [tickets.md](./tickets.md) | Ticket management (detailed) |
+| [stands.md](./stands.md) | Stand/vendor (detailed) |
+| [products.md](./products.md) | Product management (detailed) |
 | [lineup.md](./lineup.md) | Artist and lineup endpoints |
+
+### Guides and References
+
+| Document | Description |
+|----------|-------------|
 | [authentication.md](./authentication.md) | Authentication guide |
 | [errors.md](./errors.md) | Error codes reference |
 | [webhooks.md](./webhooks.md) | Webhook configuration |
 | [rate-limiting.md](./rate-limiting.md) | Rate limiting details |
+| [examples/common-operations.md](./examples/common-operations.md) | cURL examples |
 
 ---
 

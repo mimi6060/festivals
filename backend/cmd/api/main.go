@@ -17,8 +17,10 @@ import (
 	"github.com/mimi6060/festivals/backend/internal/domain/wallet"
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/cache"
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/database"
+	"github.com/mimi6060/festivals/backend/internal/infrastructure/monitoring"
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/websocket"
 	"github.com/mimi6060/festivals/backend/internal/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -27,6 +29,8 @@ import (
 
 	_ "github.com/mimi6060/festivals/backend/docs"
 )
+
+const appVersion = "1.0.0"
 
 // @title Festivals API
 // @version 1.0.0
@@ -66,6 +70,10 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
+	// Initialize Prometheus metrics
+	metrics := monitoring.Init("festivals")
+	log.Info().Msg("Prometheus metrics initialized")
+
 	// Connect to database
 	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
@@ -77,6 +85,12 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to Redis")
 	}
+
+	// Initialize health checker with all components
+	healthChecker := monitoring.NewHealthChecker(appVersion)
+	healthChecker.Register(monitoring.NewDatabaseChecker(db))
+	healthChecker.Register(monitoring.NewRedisChecker(rdb))
+	healthHandler := monitoring.NewHealthHandler(healthChecker)
 
 	// Initialize WebSocket hub and realtime service
 	wsHub := websocket.NewHub()
@@ -95,14 +109,18 @@ func main() {
 	router.Use(middleware.Logger())
 	router.Use(middleware.CORS())
 	router.Use(middleware.RequestID())
+	router.Use(middleware.MetricsWithConfig(middleware.DefaultMetricsConfig()))
 
-	// Health check
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "ok",
-			"version": "1.0.0",
-		})
-	})
+	// Health check endpoints
+	healthHandler.RegisterRoutes(router)
+
+	// Prometheus metrics endpoint
+	router.GET("/metrics", gin.WrapH(promhttp.HandlerFor(
+		metrics.Registry,
+		promhttp.HandlerOpts{
+			EnableOpenMetrics: true,
+		},
+	)))
 
 	// Swagger documentation endpoint
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler,

@@ -273,6 +273,56 @@ export async function markAllAsReadOnBackend(): Promise<boolean> {
 }
 
 /**
+ * Mark a single notification as read on the backend
+ */
+export async function markAsReadOnBackend(notificationId: string): Promise<boolean> {
+  const authToken = useAuthStore.getState().token;
+
+  if (!authToken) {
+    return false;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/notifications/${notificationId}/read`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+      },
+    });
+
+    return response.ok;
+  } catch (error) {
+    console.error('Error marking notification as read:', error);
+    return false;
+  }
+}
+
+/**
+ * Delete a notification on the backend
+ */
+export async function deleteNotificationOnBackend(notificationId: string): Promise<boolean> {
+  const authToken = useAuthStore.getState().token;
+
+  if (!authToken) {
+    return false;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/notifications/${notificationId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+      },
+    });
+
+    return response.ok;
+  } catch (error) {
+    console.error('Error deleting notification:', error);
+    return false;
+  }
+}
+
+/**
  * Schedule a local notification (useful for reminders)
  */
 export async function scheduleLocalNotification(

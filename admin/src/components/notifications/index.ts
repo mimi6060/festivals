@@ -1,3 +1,6 @@
 export { SMSComposer } from './SMSComposer'
 export { SMSHistory } from './SMSHistory'
 export { SMSCredits } from './SMSCredits'
+export { NotificationToggle, NotificationToggleGroup } from './NotificationToggle'
+export { TemplateEditor, FullTemplateEditor } from './TemplateEditor'
+export { TestNotificationButton, TestEmailInput } from './TestNotificationButton'

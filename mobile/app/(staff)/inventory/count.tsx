@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,15 +8,27 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  StyleSheet,
+  Dimensions,
+  Vibration,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useInventoryStore, InventoryCountItem } from '@/stores/inventoryStore';
 import { useStaffStore } from '@/stores/staffStore';
+import { CountingMode } from '@/components/inventory/CountingMode';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SCAN_AREA_SIZE = SCREEN_WIDTH * 0.6;
+
+type ViewMode = 'list' | 'scanner';
 
 export default function InventoryCountScreen() {
   const router = useRouter();
   const { currentStand } = useStaffStore();
+  const [permission, requestPermission] = useCameraPermissions();
+
   const {
     items,
     currentCount,
@@ -30,6 +42,10 @@ export default function InventoryCountScreen() {
 
   const [countedValues, setCountedValues] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [isScanning, setIsScanning] = useState(true);
+  const [lastScannedItem, setLastScannedItem] = useState<InventoryCountItem | null>(null);
+  const [flashEnabled, setFlashEnabled] = useState(false);
 
   // Start count if not already started
   useEffect(() => {
@@ -86,6 +102,43 @@ export default function InventoryCountScreen() {
     }
   };
 
+  const handleBarcodeScanned = useCallback(
+    ({ data }: { type: string; data: string }) => {
+      if (!isScanning) return;
+
+      // Find product by SKU or product ID
+      const foundItem = countItems.find(
+        (item) =>
+          item.productSku?.toLowerCase() === data.toLowerCase() ||
+          item.productId === data
+      );
+
+      if (foundItem) {
+        Vibration.vibrate(100);
+        setIsScanning(false);
+        setLastScannedItem(foundItem);
+
+        // Increment the count for the scanned item
+        const currentValue = parseInt(countedValues[foundItem.id] || '0', 10);
+        setCountedValues((prev) => ({ ...prev, [foundItem.id]: (currentValue + 1).toString() }));
+
+        // Allow scanning again after a brief delay
+        setTimeout(() => {
+          setIsScanning(true);
+        }, 1500);
+      } else {
+        Vibration.vibrate([0, 100, 100, 100]);
+        Alert.alert(
+          'Produit non trouve',
+          `Aucun produit avec le code "${data}" dans cet inventaire.`,
+          [{ text: 'OK', onPress: () => setIsScanning(true) }]
+        );
+        setIsScanning(false);
+      }
+    },
+    [isScanning, countItems, countedValues]
+  );
+
   const handleComplete = () => {
     // Update all count items with counted values
     countItems.forEach((item) => {
@@ -138,7 +191,148 @@ export default function InventoryCountScreen() {
 
   const totalVariance = countItems.reduce((sum, item) => sum + getVariance(item), 0);
   const itemsWithVariance = countItems.filter((item) => getVariance(item) !== 0).length;
+  const countedItemsCount = countItems.filter(
+    (item) => countedValues[item.id] !== undefined
+  ).length;
 
+  // Scanner View
+  if (viewMode === 'scanner') {
+    if (!permission?.granted) {
+      return (
+        <View className="flex-1 bg-gray-900 items-center justify-center p-6">
+          <Ionicons name="barcode-outline" size={64} color="#FFFFFF" />
+          <Text className="text-white text-xl font-semibold mt-4 text-center">
+            Acces camera requis
+          </Text>
+          <Text className="text-gray-400 text-center mt-2">
+            Autorisez l'acces a la camera pour scanner les codes-barres
+          </Text>
+          <TouchableOpacity
+            onPress={requestPermission}
+            className="mt-6 bg-primary px-6 py-3 rounded-xl"
+          >
+            <Text className="text-white font-semibold">Autoriser la camera</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setViewMode('list')}
+            className="mt-4"
+          >
+            <Text className="text-gray-400">Retour au mode liste</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <View className="flex-1 bg-black">
+        <CameraView
+          style={StyleSheet.absoluteFillObject}
+          facing="back"
+          enableTorch={flashEnabled}
+          barcodeScannerSettings={{
+            barcodeTypes: ['ean13', 'ean8', 'code128', 'code39', 'qr', 'upc_a', 'upc_e'],
+          }}
+          onBarcodeScanned={isScanning ? handleBarcodeScanned : undefined}
+        />
+
+        {/* Overlay */}
+        <View style={StyleSheet.absoluteFillObject}>
+          {/* Top overlay */}
+          <View className="flex-1 bg-black/60" />
+
+          {/* Middle section with scan area */}
+          <View className="flex-row">
+            <View className="flex-1 bg-black/60" />
+            <View
+              style={{ width: SCAN_AREA_SIZE, height: SCAN_AREA_SIZE }}
+              className="relative"
+            >
+              {/* Corner decorations */}
+              <View className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg" />
+              <View className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg" />
+              <View className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg" />
+              <View className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg" />
+            </View>
+            <View className="flex-1 bg-black/60" />
+          </View>
+
+          {/* Bottom overlay */}
+          <View className="flex-1 bg-black/60" />
+        </View>
+
+        {/* Header */}
+        <View className="absolute top-0 left-0 right-0 pt-12 pb-4 px-4">
+          <View className="flex-row items-center justify-between">
+            <TouchableOpacity
+              onPress={() => setViewMode('list')}
+              className="w-10 h-10 bg-black/30 rounded-full items-center justify-center"
+            >
+              <Ionicons name="list" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+
+            <View className="bg-primary/80 px-4 py-2 rounded-full">
+              <Text className="text-white font-semibold">
+                {countedItemsCount}/{countItems.length} comptes
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => setFlashEnabled(!flashEnabled)}
+              className="w-10 h-10 bg-black/30 rounded-full items-center justify-center"
+            >
+              <Ionicons
+                name={flashEnabled ? 'flash' : 'flash-outline'}
+                size={24}
+                color={flashEnabled ? '#FCD34D' : '#FFFFFF'}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Last Scanned Item */}
+        {lastScannedItem && (
+          <View className="absolute top-32 left-4 right-4">
+            <View className="bg-green-500 rounded-xl p-4 flex-row items-center">
+              <Ionicons name="checkmark-circle" size={24} color="white" />
+              <View className="ml-3 flex-1">
+                <Text className="text-white font-semibold">{lastScannedItem.productName}</Text>
+                <Text className="text-white/80 text-sm">
+                  Compte: {countedValues[lastScannedItem.id] || 0}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Instructions */}
+        <View className="absolute bottom-0 left-0 right-0 pb-12 px-6">
+          <Text className="text-white text-center text-lg font-medium mb-4">
+            Scannez le code-barres du produit
+          </Text>
+
+          <View className="flex-row space-x-3">
+            <TouchableOpacity
+              onPress={handleCancel}
+              className="flex-1 bg-white/20 py-3 rounded-xl flex-row items-center justify-center"
+            >
+              <Ionicons name="close" size={20} color="#FFFFFF" />
+              <Text className="text-white font-medium ml-2">Annuler</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleComplete}
+              className="flex-1 bg-green-500 py-3 rounded-xl flex-row items-center justify-center"
+            >
+              <Ionicons name="checkmark" size={20} color="#FFFFFF" />
+              <Text className="text-white font-medium ml-2">Terminer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  // List View
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-gray-50"
@@ -151,12 +345,23 @@ export default function InventoryCountScreen() {
             <Text className="text-lg font-semibold text-gray-900">Inventaire en cours</Text>
             <Text className="text-gray-500">{currentStand?.name || 'Stand'}</Text>
           </View>
-          <TouchableOpacity
-            onPress={handleCancel}
-            className="p-2 rounded-lg bg-gray-100"
-          >
-            <Ionicons name="close" size={24} color="#6B7280" />
-          </TouchableOpacity>
+          <View className="flex-row items-center space-x-2">
+            <TouchableOpacity
+              onPress={() => {
+                requestPermission();
+                setViewMode('scanner');
+              }}
+              className="p-2 rounded-lg bg-primary/10"
+            >
+              <Ionicons name="barcode-outline" size={24} color="#10B981" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleCancel}
+              className="p-2 rounded-lg bg-gray-100"
+            >
+              <Ionicons name="close" size={24} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Summary */}
@@ -206,89 +411,18 @@ export default function InventoryCountScreen() {
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         keyboardShouldPersistTaps="handled"
       >
-        {countItems.map((item) => {
-          const variance = getVariance(item);
-          const hasVariance = variance !== 0;
-
-          return (
-            <View
-              key={item.id}
-              className={`bg-white rounded-xl p-4 mb-3 border ${
-                hasVariance ? 'border-orange-200' : 'border-gray-200'
-              }`}
-            >
-              <View className="flex-row items-center justify-between">
-                <View className="flex-1">
-                  <Text className="font-medium text-gray-900">{item.productName}</Text>
-                  {item.productSku && (
-                    <Text className="text-gray-400 text-sm">SKU: {item.productSku}</Text>
-                  )}
-                  <Text className="text-gray-500 text-sm mt-1">
-                    Attendu: <Text className="font-semibold">{item.expectedQty}</Text>
-                  </Text>
-                </View>
-
-                <View className="flex-row items-center space-x-2">
-                  <TouchableOpacity
-                    onPress={() => handleDecrement(item.id)}
-                    className="w-10 h-10 rounded-lg bg-gray-100 items-center justify-center"
-                  >
-                    <Ionicons name="remove" size={24} color="#6B7280" />
-                  </TouchableOpacity>
-
-                  <TextInput
-                    value={countedValues[item.id] || '0'}
-                    onChangeText={(value) => handleCountChange(item.id, value)}
-                    keyboardType="numeric"
-                    className={`w-16 h-10 rounded-lg text-center text-lg font-semibold ${
-                      hasVariance ? 'bg-orange-50 text-orange-700' : 'bg-gray-100 text-gray-900'
-                    }`}
-                    selectTextOnFocus
-                  />
-
-                  <TouchableOpacity
-                    onPress={() => handleIncrement(item.id)}
-                    className="w-10 h-10 rounded-lg bg-gray-100 items-center justify-center"
-                  >
-                    <Ionicons name="add" size={24} color="#6B7280" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Variance indicator */}
-              {hasVariance && (
-                <View className="mt-2 flex-row items-center">
-                  <View
-                    className={`px-2 py-1 rounded ${
-                      variance > 0 ? 'bg-green-100' : 'bg-red-100'
-                    }`}
-                  >
-                    <Text
-                      className={`text-sm font-medium ${
-                        variance > 0 ? 'text-green-700' : 'text-red-700'
-                      }`}
-                    >
-                      {variance > 0 ? '+' : ''}{variance}
-                    </Text>
-                  </View>
-                  <Text className="text-gray-500 text-sm ml-2">
-                    {variance > 0 ? 'de plus que prevu' : 'de moins que prevu'}
-                  </Text>
-                </View>
-              )}
-
-              {/* Notes input */}
-              {hasVariance && (
-                <TextInput
-                  value={notes[item.id] || ''}
-                  onChangeText={(value) => handleNotesChange(item.id, value)}
-                  placeholder="Raison de l'ecart (optionnel)"
-                  className="mt-2 px-3 py-2 bg-gray-50 rounded-lg text-gray-700"
-                />
-              )}
-            </View>
-          );
-        })}
+        {countItems.map((item) => (
+          <CountingMode
+            key={item.id}
+            item={item}
+            countedValue={countedValues[item.id] || '0'}
+            notes={notes[item.id] || ''}
+            onCountChange={(value) => handleCountChange(item.id, value)}
+            onNotesChange={(value) => handleNotesChange(item.id, value)}
+            onIncrement={() => handleIncrement(item.id)}
+            onDecrement={() => handleDecrement(item.id)}
+          />
+        ))}
       </ScrollView>
 
       {/* Complete Button */}
