@@ -18,11 +18,13 @@ import {
   UserCog,
   ShieldCheck,
   User as UserIcon,
+  LogIn,
 } from 'lucide-react'
 import { cn, formatDateTime } from '@/lib/utils'
 import { usersApi, User, UserRole, UserStatus, UserListParams } from '@/lib/api/users'
 import { Badge } from '@/components/ui/Badge'
 import { UserCard } from '@/components/users/UserCard'
+import { impersonationManager } from '@/lib/impersonation'
 
 const roleConfig: Record<UserRole, { label: string; className: string; icon: typeof Shield }> = {
   ADMIN: {
@@ -68,7 +70,16 @@ export default function UsersPage() {
   const [filterMenuOpen, setFilterMenuOpen] = useState(false)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [impersonating, setImpersonating] = useState<string | null>(null)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false) // TODO: Get from auth context
   const perPage = 20
+
+  // Check if current user is super admin
+  useEffect(() => {
+    // TODO: Replace with actual auth check
+    // For now, enable for demo purposes
+    setIsSuperAdmin(true)
+  }, [])
 
   useEffect(() => {
     loadUsers()
@@ -189,6 +200,32 @@ export default function UsersPage() {
       setUsers(users.map(u => u.id === userId ? { ...u, status: 'ACTIVE' as UserStatus, isActive: true } : u))
     }
     setOpenMenuId(null)
+  }
+
+  const handleImpersonate = async (user: User) => {
+    // Cannot impersonate super admins
+    if (user.roles.includes('ADMIN')) {
+      alert('Cannot impersonate admin users')
+      return
+    }
+
+    setImpersonating(user.id)
+    try {
+      await impersonationManager.startImpersonation(user.id, `Debugging user: ${user.name}`)
+      // Reload the page to apply impersonation
+      window.location.reload()
+    } catch (error) {
+      console.error('Failed to start impersonation:', error)
+      alert('Failed to start impersonation. You may not have permission.')
+    } finally {
+      setImpersonating(null)
+      setOpenMenuId(null)
+    }
+  }
+
+  // Check if a user can be impersonated
+  const canImpersonate = (user: User) => {
+    return isSuperAdmin && !user.roles.includes('ADMIN') && user.status === 'ACTIVE'
   }
 
   const filteredUsers = users.filter((user) => {
@@ -514,6 +551,25 @@ export default function UsersPage() {
                               <Shield className="h-4 w-4" />
                               Gerer les roles
                             </Link>
+                            {canImpersonate(user) && (
+                              <button
+                                onClick={() => handleImpersonate(user)}
+                                disabled={impersonating === user.id}
+                                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:bg-gray-100 disabled:opacity-50"
+                              >
+                                {impersonating === user.id ? (
+                                  <>
+                                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                                    Connexion...
+                                  </>
+                                ) : (
+                                  <>
+                                    <LogIn className="h-4 w-4" />
+                                    Se connecter en tant que
+                                  </>
+                                )}
+                              </button>
+                            )}
                             {user.status === 'BANNED' ? (
                               <button
                                 onClick={() => handleUnban(user.id)}

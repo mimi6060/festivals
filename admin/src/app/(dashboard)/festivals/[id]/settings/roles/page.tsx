@@ -21,8 +21,8 @@ import { cn } from '@/lib/utils'
 import { useFestivalStore } from '@/stores/festivalStore'
 import { useRoles, useAllPermissions } from '@/hooks/usePermissions'
 import { Role, rolesApi, PREDEFINED_ROLES } from '@/lib/api/roles'
-import { PermissionList } from '@/components/permissions/PermissionMatrix'
-import { UserRoleAssignment } from '@/components/permissions/UserRoleAssignment'
+import { PermissionBadges } from '@/components/roles/PermissionMatrix'
+import { UserRoleAssignment } from '@/components/roles/UserRoleAssignment'
 
 type TabType = 'roles' | 'assignments' | 'audit'
 

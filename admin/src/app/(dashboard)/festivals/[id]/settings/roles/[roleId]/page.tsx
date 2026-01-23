@@ -7,7 +7,7 @@ import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useFestivalStore } from '@/stores/festivalStore'
 import { useAllPermissions } from '@/hooks/usePermissions'
 import { Role, rolesApi } from '@/lib/api/roles'
-import { RoleEditor } from '@/components/permissions/RoleEditor'
+import { RoleEditor } from '@/components/roles/RoleEditor'
 
 export default function EditRolePage() {
   const params = useParams()

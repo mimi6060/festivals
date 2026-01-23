@@ -1,21 +1,32 @@
 import { useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTicketStore, TicketStatus } from '@/stores/ticketStore';
 import { TicketCard } from '@/components/tickets/TicketCard';
+import {
+  EmptyState,
+  EmptyStatePresets,
+  ErrorState,
+  ErrorBanner,
+  TicketCardSkeleton,
+} from '@/components/common';
+import haptics from '@/lib/haptics';
 
 export default function TicketsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { tickets, isLoading, error, fetchTickets, clearError } = useTicketStore();
 
   useEffect(() => {
     fetchTickets();
   }, []);
 
-  const onRefresh = useCallback(() => {
+  const onRefresh = useCallback(async () => {
+    haptics.pullToRefreshTrigger();
     clearError();
-    fetchTickets();
+    await fetchTickets();
   }, [fetchTickets, clearError]);
 
   const handleTicketPress = (ticketId: string) => {
@@ -27,25 +38,35 @@ export default function TicketsScreen() {
   const pastTickets = tickets.filter((t) => ['USED', 'EXPIRED', 'CANCELLED', 'TRANSFERRED'].includes(t.status));
 
   const renderEmptyState = () => (
-    <View className="flex-1 items-center justify-center py-20">
-      <View className="bg-gray-100 rounded-full p-6 mb-4">
-        <Ionicons name="ticket-outline" size={48} color="#9CA3AF" />
-      </View>
-      <Text className="text-gray-900 text-xl font-semibold mb-2">
-        Aucun billet
-      </Text>
-      <Text className="text-gray-500 text-center px-8">
-        Vous n'avez pas encore de billets. Achetez vos billets sur notre site web.
-      </Text>
-    </View>
+    <EmptyState
+      {...EmptyStatePresets.noTickets}
+      actionLabel="Acheter des billets"
+      onAction={() => {
+        haptics.buttonPress();
+        // Open website or navigate to purchase
+      }}
+    />
   );
 
   const renderError = () => (
-    <View className="bg-red-50 rounded-xl p-4 mx-4 my-2">
-      <View className="flex-row items-center">
-        <Ionicons name="warning-outline" size={24} color="#EF4444" />
-        <Text className="text-red-700 ml-3 flex-1">{error}</Text>
-      </View>
+    <ErrorBanner
+      message={error || 'Une erreur est survenue'}
+      type="error"
+      onRetry={() => {
+        haptics.buttonPress();
+        onRefresh();
+      }}
+      onDismiss={() => {
+        clearError();
+      }}
+    />
+  );
+
+  const renderLoadingSkeleton = () => (
+    <View className="px-4 pt-4">
+      <TicketCardSkeleton />
+      <TicketCardSkeleton />
+      <TicketCardSkeleton />
     </View>
   );
 
@@ -72,10 +93,7 @@ export default function TicketsScreen() {
       </View>
 
       {isLoading && tickets.length === 0 ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color="#6366F1" />
-          <Text className="text-gray-500 mt-4">Chargement des billets...</Text>
-        </View>
+        renderLoadingSkeleton()
       ) : (
         <ScrollView
           className="flex-1"

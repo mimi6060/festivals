@@ -18,6 +18,19 @@ export interface PendingSync {
   type: FavoriteType;
   action: 'add' | 'remove';
   timestamp: string;
+  festivalId?: string;
+}
+
+export interface UpcomingFavoritePerformance {
+  performanceId: string;
+  artistId: string;
+  artistName: string;
+  artistPhoto?: string;
+  stageId: string;
+  stageName: string;
+  stageColor?: string;
+  startTime: string;
+  endTime: string;
 }
 
 interface FavoritesState {
@@ -31,8 +44,11 @@ interface FavoritesState {
   isSyncing: boolean;
   error: string | null;
   lastSyncAt: string | null;
+  currentFestivalId: string | null;
+  upcomingFavoritePerformances: UpcomingFavoritePerformance[];
 
   // Actions
+  setCurrentFestival: (festivalId: string) => void;
   addFavorite: (id: string, type: FavoriteType) => void;
   removeFavorite: (id: string, type: FavoriteType) => void;
   toggleFavorite: (id: string, type: FavoriteType) => void;
@@ -40,8 +56,9 @@ interface FavoritesState {
   clearFavoritesByType: (type: FavoriteType) => void;
 
   // Sync actions
-  syncWithBackend: () => Promise<void>;
-  fetchFavoritesFromBackend: () => Promise<void>;
+  syncWithBackend: (festivalId?: string) => Promise<void>;
+  fetchFavoritesFromBackend: (festivalId?: string) => Promise<void>;
+  fetchUpcomingFavoritePerformances: (festivalId?: string, limit?: number) => Promise<void>;
   processPendingSync: () => Promise<void>;
 
   // Selectors
@@ -49,6 +66,7 @@ interface FavoritesState {
   getFavoritesByType: (type: FavoriteType) => string[];
   getFavoriteCount: (type?: FavoriteType) => number;
   hasPendingSync: () => boolean;
+  getNextFavoritePerformance: () => UpcomingFavoritePerformance | null;
 }
 
 export const useFavoritesStore = create<FavoritesState>()(
@@ -64,6 +82,13 @@ export const useFavoritesStore = create<FavoritesState>()(
       isSyncing: false,
       error: null,
       lastSyncAt: null,
+      currentFestivalId: null,
+      upcomingFavoritePerformances: [],
+
+      // Set current festival
+      setCurrentFestival: (festivalId: string) => {
+        set({ currentFestivalId: festivalId });
+      },
 
       // Add a favorite
       addFavorite: (id: string, type: FavoriteType) => {
@@ -204,18 +229,23 @@ export const useFavoritesStore = create<FavoritesState>()(
       },
 
       // Sync all favorites with backend
-      syncWithBackend: async () => {
+      syncWithBackend: async (festivalId?: string) => {
         const state = get();
         if (state.isSyncing) return;
+
+        const targetFestivalId = festivalId || state.currentFestivalId;
 
         set({ isSyncing: true, error: null });
 
         try {
           // First, fetch current state from backend
-          await get().fetchFavoritesFromBackend();
+          await get().fetchFavoritesFromBackend(targetFestivalId || undefined);
 
           // Then, process any pending changes
           await get().processPendingSync();
+
+          // Fetch upcoming performances
+          await get().fetchUpcomingFavoritePerformances(targetFestivalId || undefined);
 
           set({
             isSyncing: false,
@@ -230,11 +260,19 @@ export const useFavoritesStore = create<FavoritesState>()(
       },
 
       // Fetch favorites from backend
-      fetchFavoritesFromBackend: async () => {
+      fetchFavoritesFromBackend: async (festivalId?: string) => {
+        const state = get();
+        const targetFestivalId = festivalId || state.currentFestivalId;
+
         set({ isLoading: true, error: null });
 
         try {
-          const response = await fetch(`${API_URL}/users/me/favorites`);
+          // Use festival-specific endpoint if festivalId is available
+          const url = targetFestivalId
+            ? `${API_URL}/festivals/${targetFestivalId}/me/favorites`
+            : `${API_URL}/users/me/favorites`;
+
+          const response = await fetch(url);
 
           if (response.ok) {
             const data = await response.json();
@@ -243,12 +281,16 @@ export const useFavoritesStore = create<FavoritesState>()(
             // Local favorites that aren't synced take precedence
             const localUnsynced = get().favorites.filter((f) => !f.synced);
 
-            const backendFavorites: FavoriteItem[] = (data.favorites || []).map((f: any) => ({
-              id: f.id,
-              type: f.type as FavoriteType,
-              addedAt: f.addedAt || new Date().toISOString(),
-              synced: true,
-            }));
+            // Handle both old format (data.favorites) and new format (data.favorites[].favorite.artistId)
+            const backendFavorites: FavoriteItem[] = (data.favorites || []).map((f: any) => {
+              const favorite = f.favorite || f;
+              return {
+                id: favorite.artistId || favorite.id,
+                type: 'artist' as FavoriteType,
+                addedAt: favorite.createdAt || favorite.addedAt || new Date().toISOString(),
+                synced: true,
+              };
+            });
 
             // Merge: backend + unsynced local (avoiding duplicates)
             const merged = [...backendFavorites];
@@ -281,6 +323,40 @@ export const useFavoritesStore = create<FavoritesState>()(
         }
       },
 
+      // Fetch upcoming performances of favorited artists
+      fetchUpcomingFavoritePerformances: async (festivalId?: string, limit: number = 10) => {
+        const state = get();
+        const targetFestivalId = festivalId || state.currentFestivalId;
+
+        if (!targetFestivalId) return;
+
+        try {
+          const response = await fetch(
+            `${API_URL}/festivals/${targetFestivalId}/me/favorites/upcoming?limit=${limit}`
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+
+            const performances: UpcomingFavoritePerformance[] = (data || []).map((p: any) => ({
+              performanceId: p.id,
+              artistId: p.artistId,
+              artistName: p.artist?.name || 'Unknown Artist',
+              artistPhoto: p.artist?.imageUrl,
+              stageId: p.stageId,
+              stageName: p.stage?.name || 'Unknown Stage',
+              stageColor: p.stage?.settings?.color,
+              startTime: p.startTime,
+              endTime: p.endTime,
+            }));
+
+            set({ upcomingFavoritePerformances: performances });
+          }
+        } catch (error) {
+          console.warn('Failed to fetch upcoming favorite performances:', error);
+        }
+      },
+
       // Process pending sync operations
       processPendingSync: async () => {
         const state = get();
@@ -291,26 +367,39 @@ export const useFavoritesStore = create<FavoritesState>()(
 
         const pendingItems = [...state.pendingSync];
         const processedIds: string[] = [];
+        const festivalId = state.currentFestivalId;
 
         for (const item of pendingItems) {
           try {
-            const endpoint = `${API_URL}/users/me/favorites`;
+            // Use festival-specific endpoints for artists
+            let endpoint: string;
+            if (item.type === 'artist' && festivalId) {
+              endpoint = `${API_URL}/festivals/${festivalId}/artists/${item.id}/favorite`;
+            } else {
+              endpoint = `${API_URL}/users/me/favorites`;
+            }
+
             const method = item.action === 'add' ? 'POST' : 'DELETE';
-            const body = JSON.stringify({
-              id: item.id,
-              type: item.type,
-            });
 
             const response = await fetch(endpoint, {
               method,
               headers: {
                 'Content-Type': 'application/json',
               },
-              body,
+              // Only send body for non-festival-specific endpoints
+              ...(item.type !== 'artist' || !festivalId
+                ? {
+                    body: JSON.stringify({
+                      id: item.id,
+                      type: item.type,
+                    }),
+                  }
+                : {}),
             });
 
-            if (response.ok || response.status === 404) {
+            if (response.ok || response.status === 404 || response.status === 409) {
               // 404 is ok for DELETE (already removed)
+              // 409 is ok for POST (already added)
               processedIds.push(`${item.id}-${item.type}-${item.timestamp}`);
 
               // Mark the favorite as synced
@@ -389,6 +478,18 @@ export const useFavoritesStore = create<FavoritesState>()(
       hasPendingSync: () => {
         return get().pendingSync.length > 0;
       },
+
+      // Get the next upcoming favorite performance
+      getNextFavoritePerformance: () => {
+        const state = get();
+        if (state.upcomingFavoritePerformances.length === 0) return null;
+
+        const now = new Date();
+        const upcoming = state.upcomingFavoritePerformances.find(
+          (p) => new Date(p.startTime) > now
+        );
+        return upcoming || null;
+      },
     }),
     {
       name: 'favorites-storage',
@@ -400,6 +501,8 @@ export const useFavoritesStore = create<FavoritesState>()(
         favorites: state.favorites,
         pendingSync: state.pendingSync,
         lastSyncAt: state.lastSyncAt,
+        currentFestivalId: state.currentFestivalId,
+        upcomingFavoritePerformances: state.upcomingFavoritePerformances,
       }),
     }
   )

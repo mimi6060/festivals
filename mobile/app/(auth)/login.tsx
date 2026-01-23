@@ -4,16 +4,20 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { useRouter, Link } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/stores/authStore';
 import { SocialLoginButton } from '@/components/auth/SocialLoginButton';
+import {
+  KeyboardAvoidingWrapper,
+  SafeAreaContainer,
+  HapticTouchable,
+} from '@/components/common';
+import haptics from '@/lib/haptics';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -44,36 +48,40 @@ export default function LoginScreen() {
   };
 
   const handleEmailLogin = async () => {
-    if (!validateForm()) return;
+    if (!validateForm()) {
+      haptics.error();
+      return;
+    }
 
+    haptics.buttonPressHeavy();
     try {
       await loginWithEmail(email, password);
+      haptics.success();
       router.replace('/(tabs)');
     } catch (error: any) {
+      haptics.error();
       Alert.alert('Erreur', error.message || 'Impossible de se connecter');
     }
   };
 
   const handleSocialLogin = async (provider: 'google' | 'apple' | 'facebook') => {
+    haptics.buttonPress();
     try {
       await loginWithAuth0(provider);
+      haptics.success();
       router.replace('/(tabs)');
     } catch (error: any) {
+      haptics.error();
       Alert.alert('Erreur', error.message || 'Impossible de se connecter');
     }
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      className="flex-1 bg-white"
-    >
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{ flexGrow: 1 }}
-        keyboardShouldPersistTaps="handled"
+    <SafeAreaContainer backgroundColor="#FFFFFF" edges={['top', 'bottom']}>
+      <KeyboardAvoidingWrapper
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingVertical: 32 }}
       >
-        <View className="flex-1 px-6 py-8">
           {/* Header / Branding */}
           <View className="items-center mt-12 mb-8">
             <View className="w-20 h-20 bg-primary rounded-2xl items-center justify-center mb-4">
@@ -199,17 +207,16 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Register Link */}
-          <View className="flex-row justify-center mt-8">
-            <Text className="text-gray-500">Pas encore de compte ? </Text>
-            <Link href="/(auth)/register" asChild>
-              <TouchableOpacity>
-                <Text className="text-primary font-semibold">S'inscrire</Text>
-              </TouchableOpacity>
-            </Link>
-          </View>
+        {/* Register Link */}
+        <View className="flex-row justify-center mt-8">
+          <Text className="text-gray-500">Pas encore de compte ? </Text>
+          <Link href="/(auth)/register" asChild>
+            <HapticTouchable hapticType="light">
+              <Text className="text-primary font-semibold">S'inscrire</Text>
+            </HapticTouchable>
+          </Link>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingWrapper>
+    </SafeAreaContainer>
   );
 }

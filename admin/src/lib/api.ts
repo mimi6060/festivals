@@ -1,5 +1,15 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
+// Impersonation header key
+const IMPERSONATION_TOKEN_KEY = 'impersonation_token'
+const IMPERSONATION_HEADER = 'X-Impersonation-Token'
+
+// Get impersonation token from localStorage
+function getImpersonationToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem(IMPERSONATION_TOKEN_KEY)
+}
+
 export class ApiError extends Error {
   status: number
   code: string
@@ -17,12 +27,21 @@ export async function apiClient<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  // Build headers with impersonation support
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  }
+
+  // Add impersonation token if present
+  const impersonationToken = getImpersonationToken()
+  if (impersonationToken) {
+    headers[IMPERSONATION_HEADER] = impersonationToken
+  }
+
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
     credentials: 'include',
   })
 

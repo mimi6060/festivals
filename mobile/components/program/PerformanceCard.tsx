@@ -49,7 +49,7 @@ export function PerformanceCard({
   };
 
   const handleFavoritePress = () => {
-    toggleFavorite(artist.id);
+    toggleFavorite(artist.id, 'artist');
   };
 
   return (

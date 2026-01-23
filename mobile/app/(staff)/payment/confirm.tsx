@@ -2,13 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Alert, Animated, Easing } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStaffStore } from '@/stores/staffStore';
 import { useWalletStore } from '@/stores/walletStore';
+import haptics from '@/lib/haptics';
 
 type PaymentState = 'confirm' | 'processing' | 'success' | 'error';
 
 export default function ConfirmScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [paymentState, setPaymentState] = useState<PaymentState>('confirm');
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -30,6 +33,9 @@ export default function ConfirmScreen() {
 
   useEffect(() => {
     if (paymentState === 'success') {
+      // Haptic feedback for success
+      haptics.paymentSuccess();
+
       // Success animation
       Animated.parallel([
         Animated.spring(checkmarkScale, {
@@ -77,6 +83,7 @@ export default function ConfirmScreen() {
 
     // Check balance
     if (scannedCustomer.balance < cartTotal) {
+      haptics.insufficientFunds();
       Alert.alert(
         'Solde insuffisant',
         `Le client n'a que ${scannedCustomer.balance} ${currencyName} (besoin de ${cartTotal} ${currencyName})`,
@@ -85,18 +92,21 @@ export default function ConfirmScreen() {
       return;
     }
 
+    haptics.buttonPressHeavy();
     setPaymentState('processing');
 
     try {
       await processPayment(scannedCustomer.id);
       setPaymentState('success');
     } catch (error) {
+      haptics.paymentError();
       setPaymentState('error');
       setErrorMessage('Une erreur est survenue lors du paiement');
     }
   };
 
   const handleCancel = () => {
+    haptics.warning();
     Alert.alert(
       'Annuler le paiement ?',
       'Voulez-vous vraiment annuler ce paiement ?',
@@ -106,6 +116,7 @@ export default function ConfirmScreen() {
           text: 'Oui, annuler',
           style: 'destructive',
           onPress: () => {
+            haptics.buttonPress();
             setScannedCustomer(null);
             router.back();
           },
@@ -115,12 +126,14 @@ export default function ConfirmScreen() {
   };
 
   const handleDone = () => {
+    haptics.buttonPress();
     clearCart();
     setScannedCustomer(null);
     router.replace('/(staff)/payment');
   };
 
   const handleRetry = () => {
+    haptics.buttonPress();
     setPaymentState('confirm');
     setErrorMessage('');
   };

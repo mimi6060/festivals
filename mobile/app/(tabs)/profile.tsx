@@ -1,8 +1,12 @@
-import { View, Text, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, Alert, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useState, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/stores/authStore';
 import { useUserStore, Festival } from '@/stores/userStore';
+import { ProfileSkeleton, ListItemSkeleton } from '@/components/common';
+import haptics from '@/lib/haptics';
 import Constants from 'expo-constants';
 
 const APP_VERSION = Constants.expoConfig?.version || '1.0.0';
@@ -21,11 +25,23 @@ interface MenuSection {
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user, logout } = useAuthStore();
-  const { profile, festivals, activeFestivalId, setActiveFestival, getActiveFestival } =
+  const { profile, festivals, activeFestivalId, setActiveFestival, getActiveFestival, isLoading, fetchProfile } =
     useUserStore();
 
+  const [refreshing, setRefreshing] = useState(false);
   const activeFestival = getActiveFestival();
+
+  const onRefresh = useCallback(async () => {
+    haptics.pullToRefreshTrigger();
+    setRefreshing(true);
+    try {
+      await fetchProfile();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchProfile]);
 
   const menuSections: MenuSection[] = [
     {
@@ -59,6 +75,7 @@ export default function ProfileScreen() {
   ];
 
   const handleLogout = () => {
+    haptics.warning();
     Alert.alert(
       'Deconnexion',
       'Etes-vous sur de vouloir vous deconnecter ?',
@@ -67,7 +84,10 @@ export default function ProfileScreen() {
         {
           text: 'Deconnexion',
           style: 'destructive',
-          onPress: () => logout(),
+          onPress: () => {
+            haptics.buttonPressHeavy();
+            logout();
+          },
         },
       ],
       { cancelable: true }
@@ -75,7 +95,13 @@ export default function ProfileScreen() {
   };
 
   const handleFestivalChange = (festival: Festival) => {
+    haptics.selection();
     setActiveFestival(festival.id);
+  };
+
+  const handleMenuItemPress = (route: string) => {
+    haptics.buttonPress();
+    router.push(route as any);
   };
 
   const renderAvatar = () => {
@@ -104,7 +130,17 @@ export default function ProfileScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-gray-50">
+    <ScrollView
+      className="flex-1 bg-gray-50"
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor="#6366F1"
+          colors={['#6366F1']}
+        />
+      }
+    >
       <View className="p-4 space-y-4">
         {/* User Info Section */}
         <View className="bg-white rounded-xl p-6 items-center">
@@ -117,7 +153,10 @@ export default function ProfileScreen() {
           </Text>
 
           <TouchableOpacity
-            onPress={() => router.push('/profile/edit')}
+            onPress={() => {
+              haptics.buttonPress();
+              router.push('/profile/edit');
+            }}
             className="mt-4 px-6 py-2 border border-primary rounded-full flex-row items-center"
           >
             <Ionicons name="pencil-outline" size={16} color="#6366F1" />
@@ -180,7 +219,7 @@ export default function ProfileScreen() {
               {section.items.map((item, index) => (
                 <TouchableOpacity
                   key={item.label}
-                  onPress={() => router.push(item.route as any)}
+                  onPress={() => handleMenuItemPress(item.route)}
                   className={`flex-row items-center p-4 ${
                     index < section.items.length - 1 ? 'border-b border-gray-100' : ''
                   }`}
@@ -204,7 +243,10 @@ export default function ProfileScreen() {
         {/* Staff Mode Button */}
         {user?.roles?.some((r) => ['BARMAN', 'SCANNER', 'SECURITY'].includes(r)) && (
           <TouchableOpacity
-            onPress={() => router.push('/(staff)')}
+            onPress={() => {
+              haptics.buttonPressHeavy();
+              router.push('/(staff)');
+            }}
             className="bg-primary rounded-xl p-4 flex-row items-center justify-center"
           >
             <Ionicons name="briefcase-outline" size={24} color="white" />

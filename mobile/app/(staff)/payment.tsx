@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useStaffStore } from '@/stores/staffStore';
 import { useWalletStore } from '@/stores/walletStore';
+import { useNetworkStore } from '@/stores/networkStore';
+import { useOfflineTransactionStore, usePendingTransactionCount } from '@/stores/offlineTransactionStore';
 import Numpad from '@/components/staff/Numpad';
 import { ProductGrid } from '@/components/staff/ProductButton';
+import { OfflineReceiptBadge } from '@/components/staff/OfflineReceipt';
 
 type InputMode = 'numpad' | 'products';
 
@@ -26,6 +29,18 @@ export default function PaymentScreen() {
   } = useStaffStore();
 
   const { currencyName } = useWalletStore();
+  const { isOnline } = useNetworkStore();
+  const pendingCount = usePendingTransactionCount();
+  const { loadPendingTransactions } = useOfflineTransactionStore();
+
+  // Load pending transactions on mount
+  useEffect(() => {
+    loadPendingTransactions();
+  }, []);
+
+  const handleViewPendingTransactions = () => {
+    router.push('/(staff)/transactions');
+  };
 
   const totalAmount = inputMode === 'numpad' ? parseFloat(manualAmount) || 0 : cartTotal;
   const hasItems = inputMode === 'products' ? cart.length > 0 : totalAmount > 0;
@@ -76,6 +91,46 @@ export default function PaymentScreen() {
 
   return (
     <View className="flex-1 bg-gray-50">
+      {/* Offline Mode Banner */}
+      {!isOnline && (
+        <View className="bg-amber-500 px-4 py-3 flex-row items-center justify-between">
+          <View className="flex-row items-center flex-1">
+            <Ionicons name="cloud-offline-outline" size={20} color="#FFFFFF" />
+            <View className="ml-3 flex-1">
+              <Text className="text-white font-semibold">Mode hors ligne</Text>
+              <Text className="text-white/80 text-sm">
+                Les paiements seront synchronises automatiquement
+              </Text>
+            </View>
+          </View>
+          {pendingCount > 0 && (
+            <TouchableOpacity
+              onPress={handleViewPendingTransactions}
+              className="bg-white/20 px-3 py-1.5 rounded-full"
+            >
+              <Text className="text-white font-medium text-sm">
+                {pendingCount} en attente
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Online Pending Indicator */}
+      {isOnline && pendingCount > 0 && (
+        <View className="bg-blue-50 px-4 py-2 flex-row items-center justify-between border-b border-blue-100">
+          <View className="flex-row items-center">
+            <Ionicons name="sync-outline" size={18} color="#3B82F6" />
+            <Text className="text-blue-700 ml-2 text-sm">
+              Synchronisation de {pendingCount} transaction{pendingCount > 1 ? 's' : ''}...
+            </Text>
+          </View>
+          <TouchableOpacity onPress={handleViewPendingTransactions}>
+            <Text className="text-blue-600 font-medium text-sm">Voir</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Mode Toggle */}
       <View className="bg-white border-b border-gray-200 p-2">
         <View className="flex-row bg-gray-100 rounded-lg p-1">

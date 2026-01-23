@@ -10,12 +10,22 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useWalletStore, Transaction } from '@/stores/walletStore';
 import WalletQRCode from '@/components/wallet/QRCode';
 import TransactionItem from '@/components/wallet/TransactionItem';
+import {
+  EmptyState,
+  EmptyStatePresets,
+  WalletBalanceSkeleton,
+  TransactionSkeleton,
+  AnimatedNumber,
+} from '@/components/common';
+import haptics from '@/lib/haptics';
 
 export default function WalletScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const {
     balance,
     currencyName,
@@ -37,6 +47,7 @@ export default function WalletScreen() {
 
   // Pull to refresh handler
   const onRefresh = useCallback(async () => {
+    haptics.pullToRefreshTrigger();
     setRefreshing(true);
     try {
       await Promise.all([
@@ -52,16 +63,19 @@ export default function WalletScreen() {
 
   // Handle transaction tap
   const handleTransactionPress = (transaction: Transaction) => {
+    haptics.selection();
     setSelectedTransaction(transaction);
   };
 
   // Navigate to top up
   const handleTopUp = () => {
+    haptics.buttonPress();
     router.push('/wallet/topup' as any);
   };
 
   // Navigate to full transactions list
   const handleViewAllTransactions = () => {
+    haptics.buttonPress();
     router.push('/wallet/transactions' as any);
   };
 
@@ -99,9 +113,13 @@ export default function WalletScreen() {
             <ActivityIndicator color="white" className="my-4" />
           ) : (
             <>
-              <Text className="text-white text-5xl font-bold mt-2">
-                {balance} {currencyName}
-              </Text>
+              <AnimatedNumber
+                value={balance}
+                duration={600}
+                precision={0}
+                suffix={` ${currencyName}`}
+                className="text-white text-5xl font-bold mt-2"
+              />
               <Text className="text-white/60 mt-1">
                 = {(balance * exchangeRate).toFixed(2)} EUR
               </Text>
@@ -162,7 +180,13 @@ export default function WalletScreen() {
             )}
           </View>
 
-          {transactions.length === 0 ? (
+          {isLoadingTransactions && transactions.length === 0 ? (
+            <View>
+              <TransactionSkeleton />
+              <TransactionSkeleton />
+              <TransactionSkeleton />
+            </View>
+          ) : transactions.length === 0 ? (
             <View className="py-8 items-center">
               <Ionicons name="receipt-outline" size={48} color="#D1D5DB" />
               <Text className="text-gray-500 text-center mt-4">

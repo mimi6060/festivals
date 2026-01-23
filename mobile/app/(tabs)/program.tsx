@@ -2,6 +2,7 @@ import { View, Text, ScrollView, TextInput, TouchableOpacity, RefreshControl, Ac
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useLineupStore, Performance } from '@/stores/lineupStore';
+import { useFavoritesStore } from '@/stores/favoritesStore';
 import { DaySelector } from '@/components/program/DaySelector';
 import { StageSection } from '@/components/program/StageSection';
 import { PerformanceCard } from '@/components/program/PerformanceCard';
@@ -15,7 +16,6 @@ export default function ProgramScreen() {
     selectedDayIndex,
     searchQuery,
     isLoading,
-    favorites,
     setSelectedDay,
     setSearchQuery,
     fetchLineup,
@@ -25,8 +25,9 @@ export default function ProgramScreen() {
     getUpcomingPerformances,
     getArtistById,
     getStageById,
-    getFavoriteArtists,
   } = useLineupStore();
+
+  const { favoriteArtists, syncWithBackend } = useFavoritesStore();
 
   const [viewMode, setViewMode] = useState<ViewMode>('stages');
   const [refreshing, setRefreshing] = useState(false);
@@ -62,14 +63,17 @@ export default function ProgramScreen() {
 
   // Get favorite artists' performances
   const favoritePerformances = useMemo(() => {
-    return filteredPerformances.filter((p) => favorites.includes(p.artistId));
-  }, [filteredPerformances, favorites]);
+    return filteredPerformances.filter((p) => favoriteArtists.includes(p.artistId));
+  }, [filteredPerformances, favoriteArtists]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchLineup('festival-1');
+    await Promise.all([
+      fetchLineup('festival-1'),
+      syncWithBackend('festival-1'),
+    ]);
     setRefreshing(false);
-  }, [fetchLineup]);
+  }, [fetchLineup, syncWithBackend]);
 
   const handleSearchToggle = () => {
     setShowSearch(!showSearch);
@@ -103,14 +107,14 @@ export default function ProgramScreen() {
         <Ionicons
           name={viewMode === 'favorites' ? 'heart' : 'heart-outline'}
           size={14}
-          color={viewMode === 'favorites' ? '#6366F1' : '#6B7280'}
+          color={viewMode === 'favorites' ? '#EF4444' : '#6B7280'}
         />
-        <Text className={`text-center text-sm font-medium ml-1 ${viewMode === 'favorites' ? 'text-primary' : 'text-gray-500'}`}>
+        <Text className={`text-center text-sm font-medium ml-1 ${viewMode === 'favorites' ? 'text-red-500' : 'text-gray-500'}`}>
           Favoris
         </Text>
-        {favorites.length > 0 && (
-          <View className="bg-danger rounded-full w-5 h-5 items-center justify-center ml-1">
-            <Text className="text-white text-xs font-bold">{favorites.length}</Text>
+        {favoriteArtists.length > 0 && (
+          <View className="bg-red-500 rounded-full w-5 h-5 items-center justify-center ml-1">
+            <Text className="text-white text-xs font-bold">{favoriteArtists.length}</Text>
           </View>
         )}
       </TouchableOpacity>
@@ -179,7 +183,7 @@ export default function ProgramScreen() {
     }
 
     if (viewMode === 'favorites') {
-      if (favorites.length === 0) {
+      if (favoriteArtists.length === 0) {
         return (
           <View className="flex-1 items-center justify-center px-8">
             <Ionicons name="heart-outline" size={64} color="#D1D5DB" />

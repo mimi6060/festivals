@@ -130,6 +130,11 @@ func main() {
 		ginSwagger.PersistAuthorization(true),
 	))
 
+	// Redirect root to Swagger UI
+	router.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/swagger/index.html")
+	})
+
 	// WebSocket endpoints for real-time dashboard
 	wsGroup := router.Group("/ws")
 	{

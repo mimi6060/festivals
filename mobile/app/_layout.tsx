@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -12,21 +13,60 @@ import {
   setBadgeCount,
 } from '@/lib/notifications';
 import { useNotificationStore, selectUnreadCount } from '@/stores/notificationStore';
+import { initializeNetworkMonitoring } from '@/lib/network';
+import { NetworkStatusBar } from '@/components/network';
+import { SyncProgressOverlay } from '@/components/network';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const [syncOverlayVisible, setSyncOverlayVisible] = useState(false);
+
+  // Initialize network monitoring on mount
+  useEffect(() => {
+    initializeNetworkMonitoring({
+      checkInterval: 30000, // Check every 30 seconds
+      onStatusChange: (isOnline, quality) => {
+        console.log('[Network] Status changed:', { isOnline, quality });
+      },
+    });
+  }, []);
 
   useEffect(() => {
     // Hide splash screen after app is ready
     SplashScreen.hideAsync();
   }, []);
 
+  // Handle network status bar tap to show sync overlay
+  const handleNetworkStatusPress = useCallback(() => {
+    setSyncOverlayVisible(true);
+  }, []);
+
+  const handleSyncOverlayClose = useCallback(() => {
+    setSyncOverlayVisible(false);
+  }, []);
+
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <StatusBar style="auto" />
+
+      {/* Network Status Bar - shows at top when offline or syncing */}
+      <NetworkStatusBar
+        onPress={handleNetworkStatusPress}
+        showDetailsOnTap
+        zIndex={1000}
+      />
+
+      {/* Sync Progress Overlay */}
+      <SyncProgressOverlay
+        visible={syncOverlayVisible}
+        onClose={handleSyncOverlayClose}
+        cancellable
+        title="Synchronisation"
+      />
+
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
@@ -77,6 +117,6 @@ export default function RootLayout() {
           }}
         />
       </Stack>
-    </>
+    </View>
   );
 }

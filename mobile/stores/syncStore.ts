@@ -2,7 +2,19 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export type SyncStatus = 'idle' | 'syncing' | 'error' | 'success';
+// Sync status types - expanded for sync engine
+export type SyncStatus = 'idle' | 'syncing' | 'error' | 'success' | 'offline';
+
+// Sync error interface
+export interface SyncErrorInfo {
+  id: string;
+  code: string;
+  message: string;
+  entityType?: string;
+  entityId?: string;
+  recoverable: boolean;
+  timestamp: string;
+}
 
 export interface PendingTransaction {
   id: string;
@@ -21,13 +33,34 @@ export interface PendingTransaction {
   error?: string;
 }
 
+// Sync progress tracking
+export interface SyncProgress {
+  currentStrategy: string;
+  currentIndex: number;
+  totalStrategies: number;
+  progress: number; // 0-100
+}
+
 interface SyncState {
   // State
   pendingTransactions: PendingTransaction[];
   lastSyncTime: string | null;
   syncStatus: SyncStatus;
   syncError: string | null;
+  syncErrors: SyncErrorInfo[];
   isSyncing: boolean;
+  isOnline: boolean;
+
+  // Progress tracking
+  syncProgress: SyncProgress | null;
+
+  // Pending counts by entity type
+  pendingCounts: {
+    transactions: number;
+    wallets: number;
+    products: number;
+    stands: number;
+  };
 
   // Actions
   addPendingTransaction: (transaction: Omit<PendingTransaction, 'retryCount'>) => void;
@@ -41,6 +74,15 @@ interface SyncState {
   setSyncError: (error: string | null) => void;
   getPendingCount: () => number;
   getOldestPending: () => PendingTransaction | null;
+
+  // New actions for sync engine
+  setIsOnline: (isOnline: boolean) => void;
+  setSyncProgress: (progress: SyncProgress | null) => void;
+  addSyncError: (error: SyncErrorInfo) => void;
+  clearSyncErrors: () => void;
+  setPendingCounts: (counts: Partial<SyncState['pendingCounts']>) => void;
+  startSync: () => void;
+  cancelSync: () => void;
 }
 
 export interface SyncResult {
@@ -64,7 +106,16 @@ export const useSyncStore = create<SyncState>()(
       lastSyncTime: null,
       syncStatus: 'idle',
       syncError: null,
+      syncErrors: [],
       isSyncing: false,
+      isOnline: true,
+      syncProgress: null,
+      pendingCounts: {
+        transactions: 0,
+        wallets: 0,
+        products: 0,
+        stands: 0,
+      },
 
       // Actions
       addPendingTransaction: (transaction) =>
@@ -208,6 +259,41 @@ export const useSyncStore = create<SyncState>()(
           new Date(tx.createdAt) < new Date(oldest.createdAt) ? tx : oldest
         );
       },
+
+      // New actions for sync engine
+      setIsOnline: (isOnline) =>
+        set({
+          isOnline,
+          syncStatus: isOnline ? get().syncStatus : 'offline',
+        }),
+
+      setSyncProgress: (syncProgress) => set({ syncProgress }),
+
+      addSyncError: (error) =>
+        set((state) => ({
+          syncErrors: [error, ...state.syncErrors].slice(0, 50), // Keep last 50 errors
+        })),
+
+      clearSyncErrors: () => set({ syncErrors: [] }),
+
+      setPendingCounts: (counts) =>
+        set((state) => ({
+          pendingCounts: { ...state.pendingCounts, ...counts },
+        })),
+
+      startSync: () =>
+        set({
+          isSyncing: true,
+          syncStatus: 'syncing',
+          syncError: null,
+        }),
+
+      cancelSync: () =>
+        set({
+          isSyncing: false,
+          syncStatus: 'idle',
+          syncProgress: null,
+        }),
     }),
     {
       name: 'sync-storage',
@@ -215,6 +301,7 @@ export const useSyncStore = create<SyncState>()(
       partialize: (state) => ({
         pendingTransactions: state.pendingTransactions,
         lastSyncTime: state.lastSyncTime,
+        syncErrors: state.syncErrors.slice(0, 10), // Only persist last 10 errors
       }),
     }
   )
@@ -228,4 +315,35 @@ export const hasPendingSync = (): boolean => {
 // Helper to get pending count
 export const getPendingSyncCount = (): number => {
   return useSyncStore.getState().pendingTransactions.length;
+};
+
+// Helper to get total pending count across all entity types
+export const getTotalPendingCount = (): number => {
+  const { pendingCounts } = useSyncStore.getState();
+  return (
+    pendingCounts.transactions +
+    pendingCounts.wallets +
+    pendingCounts.products +
+    pendingCounts.stands
+  );
+};
+
+// Helper to check if sync is needed
+export const needsSync = (): boolean => {
+  const state = useSyncStore.getState();
+  return state.pendingTransactions.length > 0 || getTotalPendingCount() > 0;
+};
+
+// Helper to get sync state summary
+export const getSyncStateSummary = () => {
+  const state = useSyncStore.getState();
+  return {
+    status: state.syncStatus,
+    isOnline: state.isOnline,
+    isSyncing: state.isSyncing,
+    pendingCount: state.pendingTransactions.length,
+    lastSyncTime: state.lastSyncTime,
+    hasErrors: state.syncErrors.length > 0,
+    errorCount: state.syncErrors.length,
+  };
 };

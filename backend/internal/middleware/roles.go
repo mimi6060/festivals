@@ -929,3 +929,429 @@ func HasRBACRoleFromContext(c *gin.Context, roleName string) bool {
 	}
 	return false
 }
+
+// ============================================================================
+// Enhanced Permission String Middleware
+// ============================================================================
+
+// RequirePermissionString middleware checks if the user has a specific permission string
+// This uses the granular permission format (e.g., "stands.read", "products.write")
+func RequirePermissionString(rbacService auth.EnhancedRBACService, permission auth.PermissionString) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		// Check permission
+		if !rbacService.HasPermissionString(c.Request.Context(), userUUID, permission, festivalID) {
+			respondForbidden(c, "Permission denied: "+string(permission))
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequireAnyPermissionString middleware checks if the user has any of the specified permission strings
+func RequireAnyPermissionString(rbacService auth.EnhancedRBACService, permissions ...auth.PermissionString) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		// Check if user has any of the permissions
+		if !rbacService.HasAnyPermissionString(c.Request.Context(), userUUID, festivalID, permissions...) {
+			respondForbidden(c, "Insufficient permissions")
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequireAllPermissionStrings middleware checks if the user has all specified permission strings
+func RequireAllPermissionStrings(rbacService auth.EnhancedRBACService, permissions ...auth.PermissionString) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		// Check if user has all permissions
+		if !rbacService.HasAllPermissionStrings(c.Request.Context(), userUUID, festivalID, permissions...) {
+			respondForbidden(c, "Insufficient permissions")
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequirePermissionGroup middleware checks if the user has all permissions in a permission group
+func RequirePermissionGroup(rbacService auth.EnhancedRBACService, groupName string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		// Check if user has the permission group
+		if !rbacService.HasPermissionGroup(c.Request.Context(), userUUID, festivalID, groupName) {
+			respondForbidden(c, "Permission group required: "+groupName)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequireWildcardPermission middleware checks if the user has all permissions matching a wildcard pattern
+// (e.g., "stands.*" for all stand permissions)
+func RequireWildcardPermission(rbacService auth.EnhancedRBACService, wildcardPattern string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		// Check if user has the wildcard permissions
+		if !rbacService.CanAccessWildcard(c.Request.Context(), userUUID, festivalID, wildcardPattern) {
+			respondForbidden(c, "Permission denied: "+wildcardPattern)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// ============================================================================
+// Enhanced Permission Context
+// ============================================================================
+
+// LoadEnhancedPermissions middleware loads enhanced RBAC permissions into context
+func LoadEnhancedPermissions(rbacService auth.EnhancedRBACService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			c.Next()
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			c.Next()
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		// Load effective permissions
+		permissions, err := rbacService.GetEffectivePermissions(c.Request.Context(), userUUID, festivalID)
+		if err == nil {
+			c.Set(ContextKeyEffectivePermissions, permissions)
+		}
+
+		// Load permission map
+		permMap, err := rbacService.GetEffectivePermissionsMap(c.Request.Context(), userUUID, festivalID)
+		if err == nil {
+			c.Set(ContextKeyPermissionMap, permMap)
+		}
+
+		// Load basic permissions for compatibility
+		userPerms, err := rbacService.GetUserPermissions(c.Request.Context(), userUUID, festivalID)
+		if err == nil && userPerms != nil {
+			c.Set(ContextKeyRBACPermissions, userPerms)
+		}
+
+		// Load user roles
+		roles, err := rbacService.GetUserRoles(c.Request.Context(), userUUID, festivalID)
+		if err == nil {
+			c.Set(ContextKeyRBACRoles, roles)
+		}
+
+		c.Next()
+	}
+}
+
+// Context keys for enhanced permissions
+const (
+	ContextKeyEffectivePermissions = "effective_permissions"
+	ContextKeyPermissionMap        = "permission_map"
+)
+
+// GetEffectivePermissions extracts effective permissions from context
+func GetEffectivePermissions(c *gin.Context) []auth.PermissionString {
+	if perms, exists := c.Get(ContextKeyEffectivePermissions); exists {
+		if p, ok := perms.([]auth.PermissionString); ok {
+			return p
+		}
+	}
+	return nil
+}
+
+// GetPermissionMap extracts permission map from context
+func GetPermissionMap(c *gin.Context) map[auth.PermissionString]bool {
+	if permMap, exists := c.Get(ContextKeyPermissionMap); exists {
+		if pm, ok := permMap.(map[auth.PermissionString]bool); ok {
+			return pm
+		}
+	}
+	return nil
+}
+
+// HasPermissionFromMap checks if user has a permission using the preloaded permission map
+func HasPermissionFromMap(c *gin.Context, permission auth.PermissionString) bool {
+	permMap := GetPermissionMap(c)
+	if permMap == nil {
+		return false
+	}
+	return permMap[permission]
+}
+
+// HasAnyPermissionFromMap checks if user has any of the permissions using the preloaded permission map
+func HasAnyPermissionFromMap(c *gin.Context, permissions ...auth.PermissionString) bool {
+	permMap := GetPermissionMap(c)
+	if permMap == nil {
+		return false
+	}
+	for _, p := range permissions {
+		if permMap[p] {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAllPermissionsFromMap checks if user has all permissions using the preloaded permission map
+func HasAllPermissionsFromMap(c *gin.Context, permissions ...auth.PermissionString) bool {
+	permMap := GetPermissionMap(c)
+	if permMap == nil {
+		return false
+	}
+	for _, p := range permissions {
+		if !permMap[p] {
+			return false
+		}
+	}
+	return true
+}
+
+// ============================================================================
+// Dynamic Permission Checks
+// ============================================================================
+
+// DynamicPermissionCheck creates a middleware that checks permission based on URL resource
+// This is useful for generic CRUD endpoints
+func DynamicPermissionCheck(rbacService auth.EnhancedRBACService, resourceParam string, actionParam string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		// Get resource and action from params or derive from method
+		resource := c.Param(resourceParam)
+		if resource == "" {
+			resource = c.Query("resource")
+		}
+
+		action := c.Param(actionParam)
+		if action == "" {
+			// Derive action from HTTP method
+			switch c.Request.Method {
+			case "GET":
+				action = "read"
+			case "POST":
+				action = "create"
+			case "PUT", "PATCH":
+				action = "write"
+			case "DELETE":
+				action = "delete"
+			default:
+				action = "read"
+			}
+		}
+
+		if resource == "" {
+			respondForbidden(c, "Resource not specified")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+		permission := auth.CreatePermissionString(resource, action)
+
+		if !rbacService.HasPermissionString(c.Request.Context(), userUUID, permission, festivalID) {
+			respondForbidden(c, "Permission denied: "+string(permission))
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// ============================================================================
+// Role Hierarchy Middleware
+// ============================================================================
+
+// RequireMinimumRolePriority middleware checks if the user has a role with at least the specified priority
+func RequireMinimumRolePriority(rbacService auth.RBACService, minPriority int) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		roles, err := rbacService.GetUserRoles(c.Request.Context(), userUUID, festivalID)
+		if err != nil {
+			respondInternalError(c, "Failed to get user roles")
+			return
+		}
+
+		// Check if any role has sufficient priority
+		for _, role := range roles {
+			if role.Priority >= minPriority {
+				c.Next()
+				return
+			}
+		}
+
+		respondForbidden(c, "Insufficient role priority")
+	}
+}
+
+// RequireRolePriorityAbove middleware checks if the user has higher priority than another user
+// This is useful for preventing users from modifying users with higher privileges
+func RequireRolePriorityAbove(rbacService auth.RBACService, targetUserParam string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			respondForbidden(c, "User not authenticated")
+			return
+		}
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			respondForbidden(c, "Invalid user ID")
+			return
+		}
+
+		targetUserID := c.Param(targetUserParam)
+		if targetUserID == "" {
+			c.Next() // No target user, allow
+			return
+		}
+
+		targetUUID, err := uuid.Parse(targetUserID)
+		if err != nil {
+			respondForbidden(c, "Invalid target user ID")
+			return
+		}
+
+		// Self-modification is handled elsewhere
+		if userUUID == targetUUID {
+			c.Next()
+			return
+		}
+
+		festivalID := getFestivalIDFromContext(c)
+
+		// Get current user's highest priority role
+		userRoles, err := rbacService.GetUserRoles(c.Request.Context(), userUUID, festivalID)
+		if err != nil {
+			respondInternalError(c, "Failed to get user roles")
+			return
+		}
+
+		userMaxPriority := 0
+		for _, role := range userRoles {
+			if role.Priority > userMaxPriority {
+				userMaxPriority = role.Priority
+			}
+		}
+
+		// Get target user's highest priority role
+		targetRoles, err := rbacService.GetUserRoles(c.Request.Context(), targetUUID, festivalID)
+		if err != nil {
+			respondInternalError(c, "Failed to get target user roles")
+			return
+		}
+
+		targetMaxPriority := 0
+		for _, role := range targetRoles {
+			if role.Priority > targetMaxPriority {
+				targetMaxPriority = role.Priority
+			}
+		}
+
+		// User must have higher priority than target
+		if userMaxPriority <= targetMaxPriority {
+			respondForbidden(c, "Cannot modify user with equal or higher privilege level")
+			return
+		}
+
+		c.Next()
+	}
+}

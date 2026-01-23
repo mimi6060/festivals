@@ -16,6 +16,8 @@ import {
   Menu,
 } from 'lucide-react'
 import { useState } from 'react'
+import { ImpersonationBanner } from '@/components/admin/ImpersonationBanner'
+import { useImpersonation } from '@/lib/impersonation'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard, exact: true },
@@ -36,9 +38,12 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { isImpersonating } = useImpersonation()
 
   return (
     <div className="flex min-h-screen">
+      {/* Impersonation Banner */}
+      <ImpersonationBanner />
       {/* Sidebar */}
       <aside
         className={cn(
@@ -75,7 +80,7 @@ export default function DashboardLayout({
       </aside>
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col">
+      <div className={cn("flex flex-1 flex-col", isImpersonating && "pt-10")}>
         {/* Top bar */}
         <header className="flex h-16 items-center justify-between border-b bg-white px-6">
           <button

@@ -11,10 +11,12 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useTicketScanStore, ScanResult, ScanMode } from '@/stores/ticketScanStore';
 import ScanResultOverlay from '@/components/staff/ScanResultOverlay';
 import TicketScanStats from '@/components/staff/TicketScanStats';
+import haptics from '@/lib/haptics';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SCAN_AREA_SIZE = SCREEN_WIDTH * 0.65;
@@ -23,6 +25,7 @@ type ViewMode = 'scanner' | 'manual' | 'history';
 
 export default function ScanTicketScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('scanner');
@@ -51,6 +54,7 @@ export default function ScanTicketScreen() {
     async ({ data }: { type: string; data: string }) => {
       if (!isScanning || isProcessing) return;
       setIsScanning(false);
+      haptics.scanInProgress();
 
       try {
         // Parse QR code - expected format could be JSON or plain ticket code
@@ -62,9 +66,20 @@ export default function ScanTicketScreen() {
           ticketCode = data;
         }
 
-        await scanTicket(ticketCode);
+        const result = await scanTicket(ticketCode);
+
+        // Haptic feedback based on scan result
+        if (result?.resultType === 'success') {
+          haptics.ticketValidated();
+        } else if (result?.resultType === 'already_used') {
+          haptics.ticketAlreadyUsed();
+        } else {
+          haptics.ticketInvalid();
+        }
+
         setShowResultOverlay(true);
       } catch (error) {
+        haptics.scanError();
         Alert.alert('Erreur', 'Impossible de traiter ce code QR');
         setIsScanning(true);
       }
@@ -74,11 +89,23 @@ export default function ScanTicketScreen() {
 
   const handleManualSubmit = async () => {
     if (!manualCode.trim()) {
+      haptics.warning();
       Alert.alert('Erreur', 'Veuillez entrer un code de billet');
       return;
     }
 
-    await scanTicket(manualCode.trim());
+    haptics.buttonPressHeavy();
+    const result = await scanTicket(manualCode.trim());
+
+    // Haptic feedback based on scan result
+    if (result?.resultType === 'success') {
+      haptics.ticketValidated();
+    } else if (result?.resultType === 'already_used') {
+      haptics.ticketAlreadyUsed();
+    } else {
+      haptics.ticketInvalid();
+    }
+
     setShowResultOverlay(true);
     setManualCode('');
   };
@@ -90,6 +117,7 @@ export default function ScanTicketScreen() {
   };
 
   const toggleScanMode = () => {
+    haptics.toggle();
     const newMode: ScanMode = scanMode === 'entry' ? 'exit' : 'entry';
     setScanMode(newMode);
   };
