@@ -17,20 +17,27 @@ const (
 	TypeSendTicketEmail        = "email:ticket"
 	TypeSendRefundNotification = "email:refund_notification"
 
+	// SMS tasks
+	TypeSendSMS     = "sms:send"
+	TypeSendBulkSMS = "sms:bulk_send"
+
 	// Report tasks
-	TypeGenerateReport         = "report:generate"
-	TypeGenerateSalesReport    = "report:sales"
+	TypeGenerateReport           = "report:generate"
+	TypeGenerateSalesReport      = "report:sales"
 	TypeGenerateAttendanceReport = "report:attendance"
+	TypeGeneratePDFReport        = "report:pdf"
 
 	// Refund tasks
-	TypeProcessRefund    = "refund:process"
+	TypeProcessRefund     = "refund:process"
 	TypeProcessBulkRefund = "refund:bulk_process"
 
 	// Cleanup tasks
-	TypeCleanupExpiredQRCodes    = "cleanup:expired_qr"
-	TypeArchiveOldTransactions   = "cleanup:archive_transactions"
-	TypeCleanupTempFiles         = "cleanup:temp_files"
-	TypeCleanupExpiredSessions   = "cleanup:expired_sessions"
+	TypeCleanupExpiredQRCodes  = "cleanup:expired_qr"
+	TypeArchiveOldTransactions = "cleanup:archive_transactions"
+	TypeCleanupTempFiles       = "cleanup:temp_files"
+	TypeCleanupExpiredSessions = "cleanup:expired_sessions"
+	TypeCleanupOldReports      = "cleanup:old_reports"
+	TypeCleanupInactiveWallets = "cleanup:inactive_wallets"
 
 	// Notification tasks
 	TypeSendPushNotification = "notification:push"
@@ -39,6 +46,18 @@ const (
 	// Wallet tasks
 	TypeProcessWalletTopUp = "wallet:topup"
 	TypeReconcileWallets   = "wallet:reconcile"
+
+	// Sync tasks
+	TypeProcessSyncBatch   = "sync:process_batch"
+	TypeRetrySyncBatch     = "sync:retry_batch"
+	TypeProcessOfflineTx   = "sync:offline_tx"
+	TypeReconcileSyncData  = "sync:reconcile"
+
+	// Analytics tasks
+	TypeProcessAnalytics        = "analytics:process"
+	TypeAggregateAnalytics      = "analytics:aggregate"
+	TypeProcessAnalyticsEvent   = "analytics:event"
+	TypeGenerateAnalyticsReport = "analytics:report"
 )
 
 // Queue priority constants

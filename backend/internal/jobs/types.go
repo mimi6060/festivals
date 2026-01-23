@@ -420,3 +420,261 @@ func NewReconcileWalletsTask(payload *ReconcileWalletsPayload) (*asynq.Task, err
 	}
 	return asynq.NewTask(queue.TypeReconcileWallets, data, asynq.MaxRetry(2), asynq.Queue(queue.QueueLow), asynq.Timeout(1*time.Hour)), nil
 }
+
+// ============================================================================
+// SMS Task Payloads
+// ============================================================================
+
+// SendSMSPayload represents the payload for sending a single SMS
+type SendSMSPayload struct {
+	To          string     `json:"to"`
+	Message     string     `json:"message"`
+	UserID      *uuid.UUID `json:"userId,omitempty"`
+	FestivalID  *uuid.UUID `json:"festivalId,omitempty"`
+	Priority    string     `json:"priority,omitempty"` // high, normal, low
+	TemplateID  string     `json:"templateId,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// SendBulkSMSPayload represents the payload for sending bulk SMS
+type SendBulkSMSPayload struct {
+	Recipients  []SMSRecipient `json:"recipients"`
+	Message     string         `json:"message"`
+	FestivalID  uuid.UUID      `json:"festivalId"`
+	RequestedBy uuid.UUID      `json:"requestedBy"`
+	Priority    string         `json:"priority,omitempty"`
+}
+
+// SMSRecipient represents a single SMS recipient
+type SMSRecipient struct {
+	PhoneNumber string     `json:"phoneNumber"`
+	UserID      *uuid.UUID `json:"userId,omitempty"`
+	Name        string     `json:"name,omitempty"`
+}
+
+// NewSendSMSTask creates a new send SMS task
+func NewSendSMSTask(payload *SendSMSPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	opts := []asynq.Option{asynq.MaxRetry(3)}
+	if payload.Priority == "high" {
+		opts = append(opts, asynq.Queue(queue.QueueCritical))
+	}
+	return asynq.NewTask(queue.TypeSendSMS, data, opts...), nil
+}
+
+// NewSendBulkSMSTask creates a new bulk SMS task
+func NewSendBulkSMSTask(payload *SendBulkSMSPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(queue.TypeSendBulkSMS, data, asynq.MaxRetry(2), asynq.Timeout(30*time.Minute)), nil
+}
+
+// ============================================================================
+// Sync Task Payloads
+// ============================================================================
+
+// ProcessSyncBatchPayload represents the payload for processing a sync batch
+type ProcessSyncBatchPayload struct {
+	BatchID    uuid.UUID `json:"batchId"`
+	DeviceID   string    `json:"deviceId"`
+	FestivalID uuid.UUID `json:"festivalId"`
+	Priority   string    `json:"priority,omitempty"`
+}
+
+// RetrySyncBatchPayload represents the payload for retrying a failed sync batch
+type RetrySyncBatchPayload struct {
+	BatchID      uuid.UUID `json:"batchId"`
+	RetryCount   int       `json:"retryCount"`
+	MaxRetries   int       `json:"maxRetries"`
+	FailedTxIDs  []string  `json:"failedTxIds,omitempty"`
+}
+
+// ProcessOfflineTransactionPayload represents a single offline transaction to process
+type ProcessOfflineTransactionPayload struct {
+	LocalID     string    `json:"localId"`
+	BatchID     uuid.UUID `json:"batchId"`
+	DeviceID    string    `json:"deviceId"`
+	WalletID    uuid.UUID `json:"walletId"`
+	FestivalID  uuid.UUID `json:"festivalId"`
+	Amount      int64     `json:"amount"`
+	Type        string    `json:"type"`
+	StandID     *uuid.UUID `json:"standId,omitempty"`
+	StaffID     uuid.UUID `json:"staffId"`
+	ProductIDs  []uuid.UUID `json:"productIds,omitempty"`
+	Signature   string    `json:"signature"`
+	Timestamp   time.Time `json:"timestamp"`
+}
+
+// ReconcileSyncDataPayload represents the payload for reconciling sync data
+type ReconcileSyncDataPayload struct {
+	FestivalID  uuid.UUID `json:"festivalId"`
+	DeviceID    string    `json:"deviceId,omitempty"`
+	StartDate   time.Time `json:"startDate"`
+	EndDate     time.Time `json:"endDate"`
+	DryRun      bool      `json:"dryRun"`
+}
+
+// NewProcessSyncBatchTask creates a new sync batch processing task
+func NewProcessSyncBatchTask(payload *ProcessSyncBatchPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	opts := []asynq.Option{asynq.MaxRetry(3), asynq.Timeout(10 * time.Minute)}
+	if payload.Priority == "high" {
+		opts = append(opts, asynq.Queue(queue.QueueCritical))
+	}
+	return asynq.NewTask(queue.TypeProcessSyncBatch, data, opts...), nil
+}
+
+// NewRetrySyncBatchTask creates a new retry sync batch task
+func NewRetrySyncBatchTask(payload *RetrySyncBatchPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(queue.TypeRetrySyncBatch, data, asynq.MaxRetry(1), asynq.Timeout(15*time.Minute)), nil
+}
+
+// NewProcessOfflineTransactionTask creates a task for processing a single offline transaction
+func NewProcessOfflineTransactionTask(payload *ProcessOfflineTransactionPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(queue.TypeProcessOfflineTx, data, asynq.MaxRetry(5), asynq.Queue(queue.QueueCritical)), nil
+}
+
+// NewReconcileSyncDataTask creates a new sync data reconciliation task
+func NewReconcileSyncDataTask(payload *ReconcileSyncDataPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(queue.TypeReconcileSyncData, data, asynq.MaxRetry(2), asynq.Queue(queue.QueueLow), asynq.Timeout(30*time.Minute)), nil
+}
+
+// ============================================================================
+// Analytics Task Payloads
+// ============================================================================
+
+// ProcessAnalyticsPayload represents the payload for processing analytics
+type ProcessAnalyticsPayload struct {
+	FestivalID  *uuid.UUID `json:"festivalId,omitempty"` // nil = all festivals
+	TimeWindow  string     `json:"timeWindow,omitempty"` // 15m, 1h, 1d
+	MetricTypes []string   `json:"metricTypes,omitempty"` // revenue, transactions, attendance, etc.
+}
+
+// AggregateAnalyticsPayload represents the payload for aggregating analytics
+type AggregateAnalyticsPayload struct {
+	FestivalID    uuid.UUID `json:"festivalId"`
+	StartDate     time.Time `json:"startDate"`
+	EndDate       time.Time `json:"endDate"`
+	Granularity   string    `json:"granularity"` // minute, hour, day
+	MetricTypes   []string  `json:"metricTypes,omitempty"`
+	ReplaceExisting bool    `json:"replaceExisting"`
+}
+
+// AnalyticsEventPayload represents a single analytics event to process
+type AnalyticsEventPayload struct {
+	EventID     uuid.UUID              `json:"eventId"`
+	EventType   string                 `json:"eventType"`
+	FestivalID  uuid.UUID              `json:"festivalId"`
+	UserID      *uuid.UUID             `json:"userId,omitempty"`
+	SessionID   string                 `json:"sessionId,omitempty"`
+	Timestamp   time.Time              `json:"timestamp"`
+	Properties  map[string]interface{} `json:"properties,omitempty"`
+	Context     map[string]interface{} `json:"context,omitempty"`
+}
+
+// GenerateAnalyticsReportPayload represents the payload for generating an analytics report
+type GenerateAnalyticsReportPayload struct {
+	ReportID    uuid.UUID  `json:"reportId"`
+	FestivalID  uuid.UUID  `json:"festivalId"`
+	RequestedBy uuid.UUID  `json:"requestedBy"`
+	ReportType  string     `json:"reportType"` // summary, detailed, trends, comparison
+	StartDate   time.Time  `json:"startDate"`
+	EndDate     time.Time  `json:"endDate"`
+	Metrics     []string   `json:"metrics,omitempty"`
+	Format      string     `json:"format"` // pdf, json, csv
+	NotifyEmail string     `json:"notifyEmail,omitempty"`
+}
+
+// NewProcessAnalyticsTask creates a new analytics processing task
+func NewProcessAnalyticsTask(payload *ProcessAnalyticsPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(queue.TypeProcessAnalytics, data, asynq.MaxRetry(2), asynq.Queue(queue.QueueLow)), nil
+}
+
+// NewAggregateAnalyticsTask creates a new analytics aggregation task
+func NewAggregateAnalyticsTask(payload *AggregateAnalyticsPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(queue.TypeAggregateAnalytics, data, asynq.MaxRetry(2), asynq.Queue(queue.QueueLow), asynq.Timeout(30*time.Minute)), nil
+}
+
+// NewProcessAnalyticsEventTask creates a task for processing a single analytics event
+func NewProcessAnalyticsEventTask(payload *AnalyticsEventPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(queue.TypeProcessAnalyticsEvent, data, asynq.MaxRetry(3)), nil
+}
+
+// NewGenerateAnalyticsReportTask creates a task for generating an analytics report
+func NewGenerateAnalyticsReportTask(payload *GenerateAnalyticsReportPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(queue.TypeGenerateAnalyticsReport, data, asynq.MaxRetry(2), asynq.Timeout(30*time.Minute)), nil
+}
+
+// ============================================================================
+// Additional Cleanup Task Payloads
+// ============================================================================
+
+// CleanupOldReportsPayload represents the payload for cleaning old reports
+type CleanupOldReportsPayload struct {
+	FestivalID    *uuid.UUID    `json:"festivalId,omitempty"`
+	OlderThan     time.Duration `json:"olderThan"`
+	StatusFilter  []string      `json:"statusFilter,omitempty"` // completed, failed, expired
+	DryRun        bool          `json:"dryRun"`
+}
+
+// CleanupInactiveWalletsPayload represents the payload for cleaning inactive wallets
+type CleanupInactiveWalletsPayload struct {
+	FestivalID       *uuid.UUID    `json:"festivalId,omitempty"`
+	InactiveDuration time.Duration `json:"inactiveDuration"` // e.g., 365 days
+	ZeroBalanceOnly  bool          `json:"zeroBalanceOnly"`
+	DryRun           bool          `json:"dryRun"`
+}
+
+// NewCleanupOldReportsTask creates a task for cleaning old reports
+func NewCleanupOldReportsTask(payload *CleanupOldReportsPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(queue.TypeCleanupOldReports, data, asynq.MaxRetry(2), asynq.Queue(queue.QueueLow)), nil
+}
+
+// NewCleanupInactiveWalletsTask creates a task for cleaning inactive wallets
+func NewCleanupInactiveWalletsTask(payload *CleanupInactiveWalletsPayload) (*asynq.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(queue.TypeCleanupInactiveWallets, data, asynq.MaxRetry(2), asynq.Queue(queue.QueueLow), asynq.Timeout(1*time.Hour)), nil
+}

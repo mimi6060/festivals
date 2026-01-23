@@ -1,7 +1,12 @@
 import { Tabs } from 'expo-router';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFavoritesStore } from '@/stores/favoritesStore';
 
 export default function TabsLayout() {
+  const { getFavoriteCount } = useFavoritesStore();
+  const favoriteCount = getFavoriteCount();
+
   return (
     <Tabs
       screenOptions={{
@@ -46,6 +51,39 @@ export default function TabsLayout() {
           title: 'Wallet',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="wallet-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="favorites"
+        options={{
+          title: 'Favoris',
+          tabBarIcon: ({ color, size, focused }) => (
+            <View>
+              <Ionicons
+                name={focused ? 'heart' : 'heart-outline'}
+                size={size}
+                color={color}
+              />
+              {favoriteCount > 0 && (
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -4,
+                    right: -8,
+                    backgroundColor: '#EF4444',
+                    borderRadius: 10,
+                    minWidth: 16,
+                    height: 16,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingHorizontal: 4,
+                  }}
+                >
+                  <Ionicons name="heart" size={8} color="#FFFFFF" />
+                </View>
+              )}
+            </View>
           ),
         }}
       />

@@ -1,7 +1,8 @@
 import { TouchableOpacity, View, Text, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Artist, Performance, Stage, useLineupStore } from '@/stores/lineupStore';
+import { Artist, Performance, Stage } from '@/stores/lineupStore';
+import { useFavoritesStore } from '@/stores/favoritesStore';
 
 interface PerformanceCardProps {
   performance: Performance;
@@ -40,8 +41,8 @@ export function PerformanceCard({
   showStageName = false,
 }: PerformanceCardProps) {
   const router = useRouter();
-  const { toggleFavorite, isFavorite } = useLineupStore();
-  const favorited = isFavorite(artist.id);
+  const { toggleFavorite, isFavorite } = useFavoritesStore();
+  const favorited = isFavorite(artist.id, 'artist');
 
   const handlePress = () => {
     router.push(`/artist/${artist.id}`);

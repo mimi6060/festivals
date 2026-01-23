@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   Plus,
   Webhook,
@@ -16,57 +17,42 @@ import {
   ChevronDown,
   ChevronUp,
   AlertTriangle,
+  Settings,
+  Key,
+  RotateCcw,
+  Eye,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { WebhookEditor } from '@/components/api/WebhookEditor'
-
-interface WebhookConfig {
-  id: string
-  url: string
-  description: string
-  events: string[]
-  status: 'ACTIVE' | 'INACTIVE' | 'FAILING' | 'DISABLED'
-  secret?: string
-  lastTriggeredAt: string | null
-  failureCount: number
-  createdAt: string
-}
-
-interface WebhookDelivery {
-  id: string
-  webhookId: string
-  eventType: string
-  responseCode: number
-  duration: number
-  success: boolean
-  error?: string
-  attemptNumber: number
-  deliveredAt: string
-}
-
-const availableEvents = [
-  { id: 'ticket.sold', label: 'Billet vendu', description: 'Declenche quand un billet est achete' },
-  { id: 'ticket.scanned', label: 'Billet scanne', description: 'Declenche quand un billet est scanne a l\'entree' },
-  { id: 'ticket.transferred', label: 'Billet transfere', description: 'Declenche quand un billet est transfere' },
-  { id: 'wallet.topup', label: 'Rechargement wallet', description: 'Declenche quand un wallet est recharge' },
-  { id: 'wallet.transaction', label: 'Transaction wallet', description: 'Declenche pour chaque transaction' },
-  { id: 'refund.requested', label: 'Remboursement demande', description: 'Declenche quand un remboursement est demande' },
-  { id: 'refund.processed', label: 'Remboursement traite', description: 'Declenche quand un remboursement est effectue' },
-  { id: 'festival.updated', label: 'Festival mis a jour', description: 'Declenche quand les infos festival changent' },
-  { id: 'lineup.changed', label: 'Lineup modifie', description: 'Declenche quand la programmation change' },
-]
+import { WebhookForm } from '@/components/webhooks/WebhookForm'
+import { DeliveryLogRow, DeliveryLogViewer } from '@/components/webhooks/DeliveryLogViewer'
+import {
+  webhooksApi,
+  WEBHOOK_EVENTS,
+  getWebhookStatusLabel,
+  getWebhookStatusColor,
+  formatDuration,
+  type Webhook as WebhookType,
+  type WebhookDelivery,
+  type CreateWebhookInput,
+  type UpdateWebhookInput,
+} from '@/lib/api/webhooks'
 
 export default function WebhooksPage() {
   const params = useParams()
+  const router = useRouter()
   const festivalId = params.id as string
-  const [webhooks, setWebhooks] = useState<WebhookConfig[]>([])
+
+  const [webhooks, setWebhooks] = useState<WebhookType[]>([])
   const [deliveries, setDeliveries] = useState<Record<string, WebhookDelivery[]>>({})
   const [expandedWebhook, setExpandedWebhook] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [showEditor, setShowEditor] = useState(false)
-  const [editingWebhook, setEditingWebhook] = useState<WebhookConfig | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [editingWebhook, setEditingWebhook] = useState<WebhookType | null>(null)
   const [newSecret, setNewSecret] = useState<string | null>(null)
   const [testingWebhook, setTestingWebhook] = useState<string | null>(null)
+  const [selectedDelivery, setSelectedDelivery] = useState<WebhookDelivery | null>(null)
+  const [testEventType, setTestEventType] = useState<string>('ticket.sold')
+  const [showTestDialog, setShowTestDialog] = useState<string | null>(null)
 
   useEffect(() => {
     loadWebhooks()
@@ -75,56 +61,132 @@ export default function WebhooksPage() {
   const loadWebhooks = async () => {
     try {
       // TODO: Replace with actual API call
-      // const data = await webhooksApi.list(festivalId)
+      // const response = await webhooksApi.list(festivalId)
+      // setWebhooks(response.data)
 
       // Mock data
       setWebhooks([
         {
           id: '1',
+          festivalId,
           url: 'https://partner.example.com/webhooks/festival',
           description: 'Integration partenaire principal',
           events: ['ticket.sold', 'ticket.scanned', 'wallet.topup'],
           status: 'ACTIVE',
           lastTriggeredAt: new Date(Date.now() - 5 * 60000).toISOString(),
           failureCount: 0,
+          consecutiveFailures: 0,
           createdAt: '2026-01-10T10:00:00Z',
+          updatedAt: '2026-01-10T10:00:00Z',
         },
         {
           id: '2',
+          festivalId,
           url: 'https://analytics.example.com/events',
           description: 'Tracking analytique',
           events: ['ticket.sold', 'wallet.transaction'],
           status: 'ACTIVE',
           lastTriggeredAt: new Date(Date.now() - 30 * 60000).toISOString(),
           failureCount: 0,
+          consecutiveFailures: 0,
           createdAt: '2026-01-12T14:00:00Z',
+          updatedAt: '2026-01-12T14:00:00Z',
         },
         {
           id: '3',
+          festivalId,
           url: 'https://failing-endpoint.example.com/hook',
           description: 'Endpoint en echec',
           events: ['refund.requested'],
           status: 'FAILING',
           lastTriggeredAt: new Date(Date.now() - 2 * 60 * 60000).toISOString(),
           failureCount: 5,
+          consecutiveFailures: 5,
           createdAt: '2026-01-15T09:00:00Z',
+          updatedAt: '2026-01-15T09:00:00Z',
         },
       ])
 
       // Mock deliveries
       setDeliveries({
         '1': [
-          { id: 'd1', webhookId: '1', eventType: 'ticket.sold', responseCode: 200, duration: 45, success: true, attemptNumber: 1, deliveredAt: new Date(Date.now() - 5 * 60000).toISOString() },
-          { id: 'd2', webhookId: '1', eventType: 'wallet.topup', responseCode: 200, duration: 52, success: true, attemptNumber: 1, deliveredAt: new Date(Date.now() - 15 * 60000).toISOString() },
-          { id: 'd3', webhookId: '1', eventType: 'ticket.scanned', responseCode: 200, duration: 38, success: true, attemptNumber: 1, deliveredAt: new Date(Date.now() - 25 * 60000).toISOString() },
+          {
+            id: 'd1',
+            webhookId: '1',
+            eventType: 'ticket.sold',
+            eventId: 'evt_abc123',
+            requestUrl: 'https://partner.example.com/webhooks/festival',
+            requestHeaders: { 'Content-Type': 'application/json', 'X-Webhook-Signature': 'sha256=abc...' },
+            requestBody: '{"event":"ticket.sold","data":{"ticketId":"tkt_123"}}',
+            responseCode: 200,
+            responseHeaders: { 'Content-Type': 'application/json' },
+            responseBody: '{"received":true}',
+            duration: 45,
+            success: true,
+            attemptNumber: 1,
+            maxAttempts: 3,
+            deliveredAt: new Date(Date.now() - 5 * 60000).toISOString(),
+            createdAt: new Date(Date.now() - 5 * 60000).toISOString(),
+          },
+          {
+            id: 'd2',
+            webhookId: '1',
+            eventType: 'wallet.topup',
+            eventId: 'evt_def456',
+            requestUrl: 'https://partner.example.com/webhooks/festival',
+            requestHeaders: { 'Content-Type': 'application/json', 'X-Webhook-Signature': 'sha256=def...' },
+            requestBody: '{"event":"wallet.topup","data":{"walletId":"wal_456","amount":5000}}',
+            responseCode: 200,
+            responseHeaders: { 'Content-Type': 'application/json' },
+            responseBody: '{"received":true}',
+            duration: 52,
+            success: true,
+            attemptNumber: 1,
+            maxAttempts: 3,
+            deliveredAt: new Date(Date.now() - 15 * 60000).toISOString(),
+            createdAt: new Date(Date.now() - 15 * 60000).toISOString(),
+          },
         ],
         '2': [
-          { id: 'd4', webhookId: '2', eventType: 'ticket.sold', responseCode: 200, duration: 120, success: true, attemptNumber: 1, deliveredAt: new Date(Date.now() - 30 * 60000).toISOString() },
-          { id: 'd5', webhookId: '2', eventType: 'wallet.transaction', responseCode: 200, duration: 89, success: true, attemptNumber: 1, deliveredAt: new Date(Date.now() - 45 * 60000).toISOString() },
+          {
+            id: 'd4',
+            webhookId: '2',
+            eventType: 'ticket.sold',
+            eventId: 'evt_ghi789',
+            requestUrl: 'https://analytics.example.com/events',
+            requestHeaders: { 'Content-Type': 'application/json' },
+            requestBody: '{"event":"ticket.sold","data":{}}',
+            responseCode: 200,
+            responseHeaders: {},
+            responseBody: '',
+            duration: 120,
+            success: true,
+            attemptNumber: 1,
+            maxAttempts: 3,
+            deliveredAt: new Date(Date.now() - 30 * 60000).toISOString(),
+            createdAt: new Date(Date.now() - 30 * 60000).toISOString(),
+          },
         ],
         '3': [
-          { id: 'd6', webhookId: '3', eventType: 'refund.requested', responseCode: 500, duration: 5000, success: false, error: 'Internal Server Error', attemptNumber: 3, deliveredAt: new Date(Date.now() - 2 * 60 * 60000).toISOString() },
-          { id: 'd7', webhookId: '3', eventType: 'refund.requested', responseCode: 0, duration: 30000, success: false, error: 'Connection timeout', attemptNumber: 2, deliveredAt: new Date(Date.now() - 3 * 60 * 60000).toISOString() },
+          {
+            id: 'd6',
+            webhookId: '3',
+            eventType: 'refund.requested',
+            eventId: 'evt_jkl012',
+            requestUrl: 'https://failing-endpoint.example.com/hook',
+            requestHeaders: { 'Content-Type': 'application/json' },
+            requestBody: '{"event":"refund.requested","data":{}}',
+            responseCode: 500,
+            responseHeaders: { 'Content-Type': 'text/plain' },
+            responseBody: 'Internal Server Error',
+            duration: 5000,
+            success: false,
+            error: 'Internal Server Error',
+            attemptNumber: 3,
+            maxAttempts: 3,
+            deliveredAt: new Date(Date.now() - 2 * 60 * 60000).toISOString(),
+            createdAt: new Date(Date.now() - 2 * 60 * 60000).toISOString(),
+          },
         ],
       })
     } catch (error) {
@@ -134,104 +196,126 @@ export default function WebhooksPage() {
     }
   }
 
-  const handleCreateWebhook = async (data: Partial<WebhookConfig>) => {
+  const handleCreateWebhook = async (data: CreateWebhookInput) => {
     try {
       // TODO: Replace with actual API call
       // const result = await webhooksApi.create(festivalId, data)
+      // setNewSecret(result.secret)
 
       const mockSecret = `whsec_${generateRandomString(32)}`
       setNewSecret(mockSecret)
 
-      const newWebhook: WebhookConfig = {
+      const newWebhook: WebhookType = {
         id: String(Date.now()),
-        url: data.url!,
+        festivalId,
+        url: data.url,
         description: data.description || '',
-        events: data.events || [],
+        events: data.events,
         status: 'ACTIVE',
-        secret: mockSecret,
+        headers: data.headers,
         lastTriggeredAt: null,
         failureCount: 0,
+        consecutiveFailures: 0,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       }
 
       setWebhooks([...webhooks, newWebhook])
-      setShowEditor(false)
-      setEditingWebhook(null)
     } catch (error) {
       console.error('Failed to create webhook:', error)
+      throw error
     }
   }
 
-  const handleUpdateWebhook = async (data: Partial<WebhookConfig>) => {
+  const handleUpdateWebhook = async (data: UpdateWebhookInput) => {
     if (!editingWebhook) return
 
     try {
       // TODO: Replace with actual API call
       // await webhooksApi.update(festivalId, editingWebhook.id, data)
 
-      setWebhooks(webhooks.map(w =>
-        w.id === editingWebhook.id
-          ? { ...w, ...data }
-          : w
-      ))
-      setShowEditor(false)
+      setWebhooks(
+        webhooks.map((w) =>
+          w.id === editingWebhook.id
+            ? { ...w, ...data, updatedAt: new Date().toISOString() }
+            : w
+        )
+      )
+      setShowForm(false)
       setEditingWebhook(null)
     } catch (error) {
       console.error('Failed to update webhook:', error)
+      throw error
     }
   }
 
   const handleToggleStatus = async (webhookId: string) => {
-    const webhook = webhooks.find(w => w.id === webhookId)
+    const webhook = webhooks.find((w) => w.id === webhookId)
     if (!webhook) return
 
     const newStatus = webhook.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
 
     try {
       // TODO: Replace with actual API call
-      // await webhooksApi.update(festivalId, webhookId, { status: newStatus })
+      // if (newStatus === 'ACTIVE') {
+      //   await webhooksApi.enable(festivalId, webhookId)
+      // } else {
+      //   await webhooksApi.disable(festivalId, webhookId)
+      // }
 
-      setWebhooks(webhooks.map(w =>
-        w.id === webhookId
-          ? { ...w, status: newStatus }
-          : w
-      ))
+      setWebhooks(
+        webhooks.map((w) =>
+          w.id === webhookId ? { ...w, status: newStatus } : w
+        )
+      )
     } catch (error) {
       console.error('Failed to toggle webhook status:', error)
     }
   }
 
   const handleDeleteWebhook = async (webhookId: string) => {
-    if (!confirm('Etes-vous sur de vouloir supprimer ce webhook ?')) return
+    if (!confirm('Etes-vous sur de vouloir supprimer ce webhook ? Cette action est irreversible.')) {
+      return
+    }
 
     try {
       // TODO: Replace with actual API call
       // await webhooksApi.delete(festivalId, webhookId)
 
-      setWebhooks(webhooks.filter(w => w.id !== webhookId))
+      setWebhooks(webhooks.filter((w) => w.id !== webhookId))
     } catch (error) {
       console.error('Failed to delete webhook:', error)
     }
   }
 
-  const handleTestWebhook = async (webhookId: string) => {
+  const handleTestWebhook = async (webhookId: string, eventType: string) => {
     setTestingWebhook(webhookId)
+    setShowTestDialog(null)
+
     try {
       // TODO: Replace with actual API call
-      // const result = await webhooksApi.test(festivalId, webhookId, { eventType: 'ticket.sold' })
+      // const result = await webhooksApi.test(festivalId, webhookId, eventType)
 
       // Mock test delivery
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      await new Promise((resolve) => setTimeout(resolve, 1000))
 
       const testDelivery: WebhookDelivery = {
         id: `test-${Date.now()}`,
         webhookId,
-        eventType: 'ticket.sold',
+        eventType,
+        eventId: `evt_test_${generateRandomString(8)}`,
+        requestUrl: webhooks.find((w) => w.id === webhookId)?.url || '',
+        requestHeaders: { 'Content-Type': 'application/json', 'X-Webhook-Signature': 'sha256=test...' },
+        requestBody: JSON.stringify({ event: eventType, data: { test: true }, timestamp: new Date().toISOString() }),
         responseCode: 200,
+        responseHeaders: { 'Content-Type': 'application/json' },
+        responseBody: '{"received":true}',
         duration: 125,
         success: true,
         attemptNumber: 1,
+        maxAttempts: 1,
         deliveredAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
       }
 
       setDeliveries({
@@ -245,6 +329,30 @@ export default function WebhooksPage() {
       console.error('Failed to test webhook:', error)
     } finally {
       setTestingWebhook(null)
+    }
+  }
+
+  const handleRetryDelivery = async (webhookId: string, deliveryId: string) => {
+    try {
+      // TODO: Replace with actual API call
+      // await webhooksApi.retryDelivery(festivalId, webhookId, deliveryId)
+
+      // Mock retry
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      // Update the delivery to show it was retried
+      setDeliveries({
+        ...deliveries,
+        [webhookId]: deliveries[webhookId]?.map((d) =>
+          d.id === deliveryId
+            ? { ...d, attemptNumber: d.attemptNumber + 1, success: true, responseCode: 200, error: undefined }
+            : d
+        ) || [],
+      })
+
+      setSelectedDelivery(null)
+    } catch (error) {
+      console.error('Failed to retry delivery:', error)
     }
   }
 
@@ -266,7 +374,7 @@ export default function WebhooksPage() {
     return `Il y a ${Math.floor(hours / 24)}j`
   }
 
-  const getStatusConfig = (status: WebhookConfig['status']) => {
+  const getStatusConfig = (status: WebhookType['status']) => {
     switch (status) {
       case 'ACTIVE':
         return { label: 'Actif', className: 'bg-green-100 text-green-800', icon: CheckCircle }
@@ -302,7 +410,8 @@ export default function WebhooksPage() {
         <button
           onClick={() => {
             setEditingWebhook(null)
-            setShowEditor(true)
+            setNewSecret(null)
+            setShowForm(true)
           }}
           className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-white hover:bg-primary/90"
         >
@@ -311,29 +420,20 @@ export default function WebhooksPage() {
         </button>
       </div>
 
-      {/* New Secret Alert */}
-      {newSecret && (
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h4 className="font-medium text-yellow-800">Secret de signature</h4>
-              <p className="mt-1 text-sm text-yellow-700">
-                Utilisez ce secret pour verifier la signature des webhooks. Il ne sera plus affiche.
-              </p>
-              <code className="mt-2 block rounded bg-yellow-100 px-3 py-2 text-sm font-mono break-all">
-                {newSecret}
-              </code>
-              <button
-                onClick={() => setNewSecret(null)}
-                className="mt-3 text-sm text-yellow-700 hover:underline"
-              >
-                J'ai copie le secret
-              </button>
-            </div>
+      {/* Info Banner */}
+      <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
+        <div className="flex items-start gap-3">
+          <Webhook className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <h4 className="font-medium text-blue-900">Comment fonctionnent les webhooks</h4>
+            <p className="mt-1 text-sm text-blue-800">
+              Les webhooks envoient des requetes HTTP POST a votre endpoint chaque fois qu'un evenement se produit.
+              Chaque requete inclut une signature HMAC-SHA256 pour verification.
+              En cas d'echec, nous reessayons jusqu'a 3 fois avec un delai exponentiel.
+            </p>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Webhooks List */}
       {webhooks.length === 0 ? (
@@ -341,7 +441,7 @@ export default function WebhooksPage() {
           <Webhook className="mx-auto h-12 w-12 text-gray-400" />
           <p className="mt-2 text-gray-500">Aucun webhook configure</p>
           <button
-            onClick={() => setShowEditor(true)}
+            onClick={() => setShowForm(true)}
             className="mt-4 inline-flex items-center gap-2 text-primary hover:underline"
           >
             <Plus className="h-4 w-4" />
@@ -368,7 +468,7 @@ export default function WebhooksPage() {
                       <div className="flex items-center gap-3">
                         <Webhook className="h-5 w-5 text-gray-400 flex-shrink-0" />
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <a
                               href={webhook.url}
                               target="_blank"
@@ -378,10 +478,12 @@ export default function WebhooksPage() {
                               {webhook.url}
                               <ExternalLink className="inline-block ml-1 h-3 w-3" />
                             </a>
-                            <span className={cn(
-                              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-                              statusConfig.className
-                            )}>
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
+                                statusConfig.className
+                              )}
+                            >
                               <StatusIcon className="h-3 w-3" />
                               {statusConfig.label}
                             </span>
@@ -394,7 +496,7 @@ export default function WebhooksPage() {
 
                       {/* Events */}
                       <div className="mt-3 flex flex-wrap gap-2">
-                        {webhook.events.map((event) => (
+                        {webhook.events.slice(0, 5).map((event) => (
                           <span
                             key={event}
                             className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"
@@ -402,22 +504,56 @@ export default function WebhooksPage() {
                             {event}
                           </span>
                         ))}
+                        {webhook.events.length > 5 && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                            +{webhook.events.length - 5} autres
+                          </span>
+                        )}
                       </div>
                     </div>
 
                     {/* Actions */}
                     <div className="flex items-center gap-2 ml-4">
-                      <button
-                        onClick={() => handleTestWebhook(webhook.id)}
-                        disabled={testingWebhook === webhook.id || webhook.status !== 'ACTIVE'}
-                        className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
-                      >
-                        {testingWebhook === webhook.id ? (
-                          <RefreshCw className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Play className="h-4 w-4" />
+                      {/* Test Button */}
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowTestDialog(showTestDialog === webhook.id ? null : webhook.id)}
+                          disabled={testingWebhook === webhook.id || webhook.status !== 'ACTIVE'}
+                          className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+                          title="Tester le webhook"
+                        >
+                          {testingWebhook === webhook.id ? (
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Play className="h-4 w-4" />
+                          )}
+                        </button>
+
+                        {/* Test Event Type Selector */}
+                        {showTestDialog === webhook.id && (
+                          <div className="absolute right-0 top-full mt-1 z-10 w-64 rounded-lg border bg-white shadow-lg p-3">
+                            <p className="text-sm font-medium text-gray-700 mb-2">Type d'evenement de test</p>
+                            <select
+                              value={testEventType}
+                              onChange={(e) => setTestEventType(e.target.value)}
+                              className="w-full rounded-lg border px-3 py-2 text-sm mb-2"
+                            >
+                              {webhook.events.map((event) => (
+                                <option key={event} value={event}>
+                                  {event}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => handleTestWebhook(webhook.id, testEventType)}
+                              className="w-full rounded-lg bg-primary px-3 py-2 text-sm text-white hover:bg-primary/90"
+                            >
+                              Envoyer le test
+                            </button>
+                          </div>
                         )}
-                      </button>
+                      </div>
+
                       <button
                         onClick={() => handleToggleStatus(webhook.id)}
                         className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50"
@@ -432,15 +568,25 @@ export default function WebhooksPage() {
                       <button
                         onClick={() => {
                           setEditingWebhook(webhook)
-                          setShowEditor(true)
+                          setNewSecret(null)
+                          setShowForm(true)
                         }}
                         className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50"
+                        title="Modifier"
                       >
-                        Modifier
+                        <Settings className="h-4 w-4" />
                       </button>
+                      <Link
+                        href={`/festivals/${festivalId}/api/webhooks/${webhook.id}/logs`}
+                        className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50"
+                        title="Voir tous les logs"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Link>
                       <button
                         onClick={() => handleDeleteWebhook(webhook.id)}
                         className="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+                        title="Supprimer"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -459,7 +605,7 @@ export default function WebhooksPage() {
                       onClick={() => setExpandedWebhook(isExpanded ? null : webhook.id)}
                       className="ml-auto flex items-center gap-1 hover:text-gray-700"
                     >
-                      Historique
+                      Historique recent
                       {isExpanded ? (
                         <ChevronUp className="h-4 w-4" />
                       ) : (
@@ -469,38 +615,28 @@ export default function WebhooksPage() {
                   </div>
                 </div>
 
-                {/* Deliveries History */}
+                {/* Deliveries History (Inline Preview) */}
                 {isExpanded && (
                   <div className="border-t bg-gray-50 p-4">
-                    <h4 className="text-sm font-medium text-gray-700 mb-3">Historique des envois</h4>
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-medium text-gray-700">Derniers envois</h4>
+                      <Link
+                        href={`/festivals/${festivalId}/api/webhooks/${webhook.id}/logs`}
+                        className="text-sm text-primary hover:underline"
+                      >
+                        Voir tout
+                      </Link>
+                    </div>
                     {webhookDeliveries.length === 0 ? (
                       <p className="text-sm text-gray-500">Aucun envoi enregistre</p>
                     ) : (
                       <div className="space-y-2">
                         {webhookDeliveries.slice(0, 5).map((delivery) => (
-                          <div
+                          <DeliveryLogRow
                             key={delivery.id}
-                            className="flex items-center justify-between rounded-lg bg-white p-3 text-sm"
-                          >
-                            <div className="flex items-center gap-3">
-                              {delivery.success ? (
-                                <CheckCircle className="h-4 w-4 text-green-500" />
-                              ) : (
-                                <XCircle className="h-4 w-4 text-red-500" />
-                              )}
-                              <span className="font-mono text-gray-600">{delivery.eventType}</span>
-                              <span className={cn(
-                                'rounded px-1.5 py-0.5 text-xs font-medium',
-                                delivery.responseCode >= 200 && delivery.responseCode < 300
-                                  ? 'bg-green-100 text-green-700'
-                                  : 'bg-red-100 text-red-700'
-                              )}>
-                                {delivery.responseCode || 'ERR'}
-                              </span>
-                              <span className="text-gray-400">{delivery.duration}ms</span>
-                            </div>
-                            <span className="text-gray-500">{formatTimeAgo(delivery.deliveredAt)}</span>
-                          </div>
+                            delivery={delivery}
+                            onClick={() => setSelectedDelivery(delivery)}
+                          />
                         ))}
                       </div>
                     )}
@@ -512,16 +648,34 @@ export default function WebhooksPage() {
         </div>
       )}
 
-      {/* Webhook Editor Modal */}
-      {showEditor && (
-        <WebhookEditor
+      {/* Webhook Form Modal */}
+      {showForm && (
+        <WebhookForm
           webhook={editingWebhook}
-          events={availableEvents}
           onSave={editingWebhook ? handleUpdateWebhook : handleCreateWebhook}
           onClose={() => {
-            setShowEditor(false)
+            setShowForm(false)
             setEditingWebhook(null)
+            setNewSecret(null)
           }}
+          newSecret={newSecret}
+          onSecretAcknowledged={() => {
+            setNewSecret(null)
+            setShowForm(false)
+          }}
+        />
+      )}
+
+      {/* Delivery Log Viewer Modal */}
+      {selectedDelivery && (
+        <DeliveryLogViewer
+          delivery={selectedDelivery}
+          onRetry={
+            !selectedDelivery.success
+              ? () => handleRetryDelivery(selectedDelivery.webhookId, selectedDelivery.id)
+              : undefined
+          }
+          onClose={() => setSelectedDelivery(null)}
         />
       )}
     </div>
