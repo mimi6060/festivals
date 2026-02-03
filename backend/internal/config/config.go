@@ -100,6 +100,7 @@ func Load() (*Config, error) {
 	// Get secrets - no defaults for security-critical values
 	jwtSecret := os.Getenv("JWT_SECRET")
 	qrcodeSecret := os.Getenv("QRCODE_SECRET")
+	databaseURL := os.Getenv("DATABASE_URL")
 
 	// SECURITY: Validate required secrets in production
 	if isProduction {
@@ -107,6 +108,9 @@ func Load() (*Config, error) {
 			return nil, err
 		}
 		if err := validateRequiredSecret("QRCODE_SECRET", qrcodeSecret); err != nil {
+			return nil, err
+		}
+		if err := validateRequiredSecret("DATABASE_URL", databaseURL); err != nil {
 			return nil, err
 		}
 	} else {
@@ -132,7 +136,7 @@ func Load() (*Config, error) {
 		Environment: environment,
 
 		// Database
-		DatabaseURL: getEnv("DATABASE_URL", "postgres://festivals:password@localhost:5432/festivals?sslmode=disable"),
+		DatabaseURL: databaseURL,
 
 		// Redis
 		RedisURL: getEnv("REDIS_URL", "redis://localhost:6379"),
