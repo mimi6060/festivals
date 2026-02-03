@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/mimi6060/festivals/backend/internal/infrastructure/email"
 	"github.com/mimi6060/festivals/backend/internal/pkg/errors"
 	"github.com/rs/zerolog/log"
 )
@@ -21,7 +20,7 @@ var templateFS embed.FS
 // Service handles notification business logic
 type Service struct {
 	repo         Repository
-	emailClient  *email.PostalClient
+	emailClient  EmailClient
 	templates    *template.Template
 	baseURL      string
 	supportEmail string
@@ -36,7 +35,7 @@ type ServiceConfig struct {
 }
 
 // NewService creates a new notification service
-func NewService(repo Repository, emailClient *email.PostalClient, cfg ServiceConfig) (*Service, error) {
+func NewService(repo Repository, emailClient EmailClient, cfg ServiceConfig) (*Service, error) {
 	// Parse all templates from embedded filesystem
 	tmpl, err := template.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
@@ -227,7 +226,7 @@ func (s *Service) SendTicketConfirmationEmailWithAttachment(ctx context.Context,
 	}
 
 	// Prepare attachment
-	attachments := []email.Attachment{
+	attachments := []EmailAttachment{
 		{
 			Name:        fmt.Sprintf("ticket-%s-qr.png", data.TicketCode),
 			ContentType: "image/png",
@@ -236,7 +235,7 @@ func (s *Service) SendTicketConfirmationEmailWithAttachment(ctx context.Context,
 	}
 
 	// Send email with attachment
-	req := email.SendEmailRequest{
+	req := EmailSendRequest{
 		To:          []string{toEmail},
 		Subject:     EmailTemplateTicketConfirmation.GetSubject(),
 		HTMLBody:    htmlBody,

@@ -256,42 +256,18 @@ func (s *Service) ScanTicket(ctx context.Context, festivalID uuid.UUID, req Scan
 	}
 
 	// Create scan record
-	scan := &TicketScan{
-		ID:         uuid.New(),
-		FestivalID: festivalID,
-		ScanType:   req.ScanType,
-		ScannedBy:  scannedBy,
-		Location:   req.Location,
-		DeviceID:   req.DeviceID,
-		ScannedAt:  now,
-	}
+	scan := s.createScanRecord(festivalID, req, scannedBy, now)
 
 	// Validate ticket exists
 	if ticket == nil {
-		scan.Result = ScanResultInvalid
-		scan.Message = "Ticket not found"
-		_ = s.repo.CreateTicketScan(ctx, scan)
-		return &ScanResponse{
-			Success:   false,
-			Result:    ScanResultInvalid,
-			Message:   "Ticket not found",
-			ScannedAt: now.Format(time.RFC3339),
-		}, nil
+		return s.recordInvalidScan(ctx, scan, nil, "Ticket not found", ScanResultInvalid, now)
 	}
 
 	scan.TicketID = ticket.ID
 
 	// Validate ticket belongs to this festival
 	if ticket.FestivalID != festivalID {
-		scan.Result = ScanResultInvalid
-		scan.Message = "Ticket does not belong to this festival"
-		_ = s.repo.CreateTicketScan(ctx, scan)
-		return &ScanResponse{
-			Success:   false,
-			Result:    ScanResultInvalid,
-			Message:   "Ticket does not belong to this festival",
-			ScannedAt: now.Format(time.RFC3339),
-		}, nil
+		return s.recordInvalidScan(ctx, scan, ticket, "Ticket does not belong to this festival", ScanResultInvalid, now)
 	}
 
 	// Get ticket type to check validity dates and reentry policy
@@ -300,19 +276,61 @@ func (s *Service) ScanTicket(ctx context.Context, festivalID uuid.UUID, req Scan
 		return nil, err
 	}
 
-	// Check ticket validity period
-	if now.Before(ticketType.ValidFrom) {
-		scan.Result = ScanResultInvalid
-		scan.Message = "Ticket not yet valid"
-		_ = s.repo.CreateTicketScan(ctx, scan)
-		return &ScanResponse{
-			Success:   false,
-			Result:    ScanResultInvalid,
-			Message:   "Ticket not yet valid",
-			ScannedAt: now.Format(time.RFC3339),
-		}, nil
+	// Validate ticket timing
+	if resp := s.validateTicketTiming(ctx, scan, ticket, ticketType, now); resp != nil {
+		return resp, nil
 	}
 
+	// Validate ticket status
+	if resp := s.validateTicketStatus(ctx, scan, ticket, ticketType, now); resp != nil {
+		return resp, nil
+	}
+
+	// Process the scan based on type
+	if err := s.processScanType(ctx, ticket, req.ScanType, scannedBy, now); err != nil {
+		return nil, err
+	}
+
+	// Record successful scan
+	return s.recordSuccessfulScan(ctx, scan, ticket, now)
+}
+
+// createScanRecord creates a new ticket scan record
+func (s *Service) createScanRecord(festivalID uuid.UUID, req ScanTicketRequest, scannedBy uuid.UUID, now time.Time) *TicketScan {
+	return &TicketScan{
+		ID:         uuid.New(),
+		FestivalID: festivalID,
+		ScanType:   req.ScanType,
+		ScannedBy:  scannedBy,
+		Location:   req.Location,
+		DeviceID:   req.DeviceID,
+		ScannedAt:  now,
+	}
+}
+
+// recordInvalidScan records an invalid scan and returns the response
+func (s *Service) recordInvalidScan(ctx context.Context, scan *TicketScan, ticket *Ticket, message string, result ScanResult, now time.Time) (*ScanResponse, error) {
+	scan.Result = result
+	scan.Message = message
+	_ = s.repo.CreateTicketScan(ctx, scan)
+	return &ScanResponse{
+		Success:   false,
+		Ticket:    ticketResponsePtr(ticket),
+		Result:    result,
+		Message:   message,
+		ScannedAt: now.Format(time.RFC3339),
+	}, nil
+}
+
+// validateTicketTiming checks if the ticket is within its validity period
+func (s *Service) validateTicketTiming(ctx context.Context, scan *TicketScan, ticket *Ticket, ticketType *TicketType, now time.Time) *ScanResponse {
+	// Check if ticket is not yet valid
+	if now.Before(ticketType.ValidFrom) {
+		resp, _ := s.recordInvalidScan(ctx, scan, ticket, "Ticket not yet valid", ScanResultInvalid, now)
+		return resp
+	}
+
+	// Check if ticket has expired
 	if now.After(ticketType.ValidUntil) {
 		// Mark ticket as expired if not already
 		if ticket.Status != TicketStatusExpired {
@@ -320,76 +338,43 @@ func (s *Service) ScanTicket(ctx context.Context, festivalID uuid.UUID, req Scan
 			ticket.UpdatedAt = now
 			_ = s.repo.UpdateTicket(ctx, ticket)
 		}
-
-		scan.Result = ScanResultExpired
-		scan.Message = "Ticket has expired"
-		_ = s.repo.CreateTicketScan(ctx, scan)
-		return &ScanResponse{
-			Success:   false,
-			Ticket:    ticketResponsePtr(ticket),
-			Result:    ScanResultExpired,
-			Message:   "Ticket has expired",
-			ScannedAt: now.Format(time.RFC3339),
-		}, nil
+		resp, _ := s.recordInvalidScan(ctx, scan, ticket, "Ticket has expired", ScanResultExpired, now)
+		return resp
 	}
 
-	// Check ticket status
+	return nil
+}
+
+// validateTicketStatus checks if the ticket status allows scanning
+func (s *Service) validateTicketStatus(ctx context.Context, scan *TicketScan, ticket *Ticket, ticketType *TicketType, now time.Time) *ScanResponse {
 	switch ticket.Status {
 	case TicketStatusCancelled:
-		scan.Result = ScanResultInvalid
-		scan.Message = "Ticket has been cancelled"
-		_ = s.repo.CreateTicketScan(ctx, scan)
-		return &ScanResponse{
-			Success:   false,
-			Ticket:    ticketResponsePtr(ticket),
-			Result:    ScanResultInvalid,
-			Message:   "Ticket has been cancelled",
-			ScannedAt: now.Format(time.RFC3339),
-		}, nil
+		resp, _ := s.recordInvalidScan(ctx, scan, ticket, "Ticket has been cancelled", ScanResultInvalid, now)
+		return resp
 
 	case TicketStatusTransferred:
-		scan.Result = ScanResultInvalid
-		scan.Message = "Ticket has been transferred"
-		_ = s.repo.CreateTicketScan(ctx, scan)
-		return &ScanResponse{
-			Success:   false,
-			Ticket:    ticketResponsePtr(ticket),
-			Result:    ScanResultInvalid,
-			Message:   "Ticket has been transferred",
-			ScannedAt: now.Format(time.RFC3339),
-		}, nil
+		resp, _ := s.recordInvalidScan(ctx, scan, ticket, "Ticket has been transferred", ScanResultInvalid, now)
+		return resp
 
 	case TicketStatusExpired:
-		scan.Result = ScanResultExpired
-		scan.Message = "Ticket has expired"
-		_ = s.repo.CreateTicketScan(ctx, scan)
-		return &ScanResponse{
-			Success:   false,
-			Ticket:    ticketResponsePtr(ticket),
-			Result:    ScanResultExpired,
-			Message:   "Ticket has expired",
-			ScannedAt: now.Format(time.RFC3339),
-		}, nil
+		resp, _ := s.recordInvalidScan(ctx, scan, ticket, "Ticket has expired", ScanResultExpired, now)
+		return resp
 
 	case TicketStatusUsed:
 		// Check reentry policy
 		if !ticketType.Settings.AllowReentry {
-			scan.Result = ScanResultAlready
-			scan.Message = "Ticket already used - reentry not allowed"
-			_ = s.repo.CreateTicketScan(ctx, scan)
-			return &ScanResponse{
-				Success:   false,
-				Ticket:    ticketResponsePtr(ticket),
-				Result:    ScanResultAlready,
-				Message:   "Ticket already used - reentry not allowed",
-				ScannedAt: now.Format(time.RFC3339),
-			}, nil
+			resp, _ := s.recordInvalidScan(ctx, scan, ticket, "Ticket already used - reentry not allowed", ScanResultAlready, now)
+			return resp
 		}
 		// Allow reentry - continue processing
 	}
 
-	// Handle different scan types
-	switch req.ScanType {
+	return nil
+}
+
+// processScanType handles the scan based on its type (entry, exit, check)
+func (s *Service) processScanType(ctx context.Context, ticket *Ticket, scanType ScanType, scannedBy uuid.UUID, now time.Time) error {
+	switch scanType {
 	case ScanTypeEntry:
 		// Mark ticket as used on first entry
 		if ticket.Status == TicketStatusValid {
@@ -398,7 +383,7 @@ func (s *Service) ScanTicket(ctx context.Context, festivalID uuid.UUID, req Scan
 			ticket.CheckedInBy = &scannedBy
 			ticket.UpdatedAt = now
 			if err := s.repo.UpdateTicket(ctx, ticket); err != nil {
-				return nil, fmt.Errorf("failed to update ticket: %w", err)
+				return fmt.Errorf("failed to update ticket: %w", err)
 			}
 		}
 
@@ -409,7 +394,11 @@ func (s *Service) ScanTicket(ctx context.Context, festivalID uuid.UUID, req Scan
 		// Just verify, no status change
 	}
 
-	// Record successful scan
+	return nil
+}
+
+// recordSuccessfulScan records a successful scan and returns the response
+func (s *Service) recordSuccessfulScan(ctx context.Context, scan *TicketScan, ticket *Ticket, now time.Time) (*ScanResponse, error) {
 	scan.Result = ScanResultSuccess
 	scan.Message = "Valid ticket"
 	if err := s.repo.CreateTicketScan(ctx, scan); err != nil {

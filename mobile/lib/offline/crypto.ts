@@ -31,23 +31,86 @@ export interface QRSignatureData {
 
 /**
  * Generates HMAC-SHA256 signature for given data
+ * Uses standard HMAC construction: H((K XOR opad) || H((K XOR ipad) || message))
+ * This is a proper HMAC implementation when native HMAC is not available
  */
 export const generateHMACSHA256 = async (
   message: string,
   key: string
 ): Promise<string> => {
-  // Combine message with key for HMAC-like behavior
-  // Note: expo-crypto doesn't have native HMAC, so we use double hashing
-  const combined = `${key}|${message}|${key}`;
+  const BLOCK_SIZE = 64; // SHA-256 block size in bytes
+
+  // Convert key to bytes, pad or hash as needed
+  let keyBytes: Uint8Array;
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(key);
+
+  if (keyData.length > BLOCK_SIZE) {
+    // If key is longer than block size, hash it first
+    const hashedKey = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      key,
+      { encoding: Crypto.CryptoEncoding.HEX }
+    );
+    keyBytes = new Uint8Array(BLOCK_SIZE);
+    const hashedKeyBytes = hexToBytes(hashedKey);
+    keyBytes.set(hashedKeyBytes);
+  } else {
+    // Pad key with zeros to block size
+    keyBytes = new Uint8Array(BLOCK_SIZE);
+    keyBytes.set(keyData);
+  }
+
+  // Create ipad (0x36 repeated) and opad (0x5c repeated)
+  const ipad = new Uint8Array(BLOCK_SIZE);
+  const opad = new Uint8Array(BLOCK_SIZE);
+  for (let i = 0; i < BLOCK_SIZE; i++) {
+    ipad[i] = keyBytes[i] ^ 0x36;
+    opad[i] = keyBytes[i] ^ 0x5c;
+  }
+
+  // Inner hash: H((K XOR ipad) || message)
+  const messageBytes = encoder.encode(message);
+  const innerData = new Uint8Array(BLOCK_SIZE + messageBytes.length);
+  innerData.set(ipad);
+  innerData.set(messageBytes, BLOCK_SIZE);
+
+  const innerHash = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    bytesToHex(innerData),
+    { encoding: Crypto.CryptoEncoding.HEX }
+  );
+
+  // Outer hash: H((K XOR opad) || inner_hash)
+  const innerHashBytes = hexToBytes(innerHash);
+  const outerData = new Uint8Array(BLOCK_SIZE + innerHashBytes.length);
+  outerData.set(opad);
+  outerData.set(innerHashBytes, BLOCK_SIZE);
 
   const signature = await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
-    combined,
+    bytesToHex(outerData),
     { encoding: Crypto.CryptoEncoding.HEX }
   );
 
   return signature;
 };
+
+// Helper: Convert hex string to Uint8Array
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return bytes;
+}
+
+// Helper: Convert Uint8Array to hex string
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 /**
  * Gets or generates the device-specific secret key

@@ -101,7 +101,7 @@ func TestQRService_GenerateQRCode(t *testing.T) {
 	mockRepo := new(MockRepository)
 
 	generator := qrcode.NewGenerator(qrcode.Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 		QRSize:    128,
 	})
 
@@ -159,7 +159,7 @@ func TestQRService_GenerateQRCode_TicketNotFound(t *testing.T) {
 	mockRepo := new(MockRepository)
 
 	generator := qrcode.NewGenerator(qrcode.Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 	})
 
 	qrService := NewQRService(mockRepo, generator)
@@ -184,7 +184,7 @@ func TestQRService_GenerateQRCode_CancelledTicket(t *testing.T) {
 	mockRepo := new(MockRepository)
 
 	generator := qrcode.NewGenerator(qrcode.Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 	})
 
 	qrService := NewQRService(mockRepo, generator)
@@ -215,7 +215,7 @@ func TestQRService_GenerateQRCodeByCode(t *testing.T) {
 	mockRepo := new(MockRepository)
 
 	generator := qrcode.NewGenerator(qrcode.Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 		QRSize:    128,
 	})
 
@@ -266,7 +266,7 @@ func TestQRService_ValidateQRCode(t *testing.T) {
 	mockRepo := new(MockRepository)
 
 	generator := qrcode.NewGenerator(qrcode.Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 	})
 
 	qrService := NewQRService(mockRepo, generator)
@@ -311,7 +311,7 @@ func TestQRService_GetTicketQRInfo(t *testing.T) {
 	mockRepo := new(MockRepository)
 
 	generator := qrcode.NewGenerator(qrcode.Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 		QRSize:    128,
 	})
 

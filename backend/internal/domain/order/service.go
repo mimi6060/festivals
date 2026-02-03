@@ -27,17 +27,33 @@ func NewService(repo Repository, productRepo product.Repository, walletService *
 
 // CreateOrder creates a new order from cart items
 func (s *Service) CreateOrder(ctx context.Context, userID, festivalID, walletID uuid.UUID, req CreateOrderRequest, staffID *uuid.UUID) (*Order, error) {
+	// Collect all product IDs for batch fetch (avoids N+1 queries)
+	productIDs := make([]uuid.UUID, len(req.Items))
+	quantityMap := make(map[uuid.UUID]int, len(req.Items))
+	for i, itemReq := range req.Items {
+		productIDs[i] = itemReq.ProductID
+		quantityMap[itemReq.ProductID] = itemReq.Quantity
+	}
+
+	// Fetch all products in a single query
+	products, err := s.productRepo.GetByIDs(ctx, productIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get products: %w", err)
+	}
+
+	// Create product map for quick lookup
+	productMap := make(map[uuid.UUID]*product.Product, len(products))
+	for i := range products {
+		productMap[products[i].ID] = &products[i]
+	}
+
 	// Validate and build order items
 	items := make([]OrderItem, 0, len(req.Items))
 	var totalAmount int64
 
 	for _, itemReq := range req.Items {
-		// Get product details
-		prod, err := s.productRepo.GetByID(ctx, itemReq.ProductID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get product: %w", err)
-		}
-		if prod == nil {
+		prod, exists := productMap[itemReq.ProductID]
+		if !exists {
 			return nil, fmt.Errorf("product %s not found", itemReq.ProductID)
 		}
 
@@ -282,24 +298,19 @@ func (s *Service) extractProductIDs(items []OrderItem) []string {
 }
 
 func (s *Service) updateProductStock(ctx context.Context, items []OrderItem, multiplier int) error {
-	for _, item := range items {
-		prod, err := s.productRepo.GetByID(ctx, item.ProductID)
-		if err != nil {
-			return err
-		}
-		if prod == nil || prod.Stock == nil {
-			continue
-		}
+	if len(items) == 0 {
+		return nil
+	}
 
-		newStock := *prod.Stock + (item.Quantity * multiplier)
-		if newStock < 0 {
-			newStock = 0
-		}
-		prod.Stock = &newStock
-
-		if err := s.productRepo.Update(ctx, prod); err != nil {
-			return err
+	// Build bulk stock updates to avoid N+1 queries
+	updates := make([]product.StockUpdate, len(items))
+	for i, item := range items {
+		updates[i] = product.StockUpdate{
+			ProductID: item.ProductID,
+			Delta:     item.Quantity * multiplier,
 		}
 	}
-	return nil
+
+	// Single transaction for all stock updates
+	return s.productRepo.UpdateStockBulk(ctx, updates)
 }

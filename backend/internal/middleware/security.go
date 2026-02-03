@@ -106,7 +106,11 @@ func ProductionSecurityConfig() SecurityConfig {
 	return cfg
 }
 
-// CSRF token store (in-memory fallback)
+// CSRF token store (in-memory fallback) with bounded size
+const (
+	maxCSRFTokens = 10000 // Maximum number of tokens to store
+)
+
 var (
 	csrfTokens     = make(map[string]time.Time)
 	csrfTokensLock sync.RWMutex
@@ -408,10 +412,65 @@ func storeCSRFToken(c *gin.Context, cfg SecurityConfig, token string) {
 		key := "csrf:" + token
 		cfg.RedisClient.Set(c.Request.Context(), key, c.ClientIP(), cfg.CSRFTokenExpiry)
 	} else {
-		// Store in memory
+		// Store in memory with bounded size
 		csrfTokensLock.Lock()
+		defer csrfTokensLock.Unlock()
+
+		// If at capacity, evict oldest tokens (LRU-like eviction)
+		if len(csrfTokens) >= maxCSRFTokens {
+			evictOldestCSRFTokensLocked(maxCSRFTokens / 10) // Evict 10% of tokens
+		}
+
 		csrfTokens[token] = time.Now().Add(cfg.CSRFTokenExpiry)
-		csrfTokensLock.Unlock()
+	}
+}
+
+// evictOldestCSRFTokensLocked removes the oldest tokens from the store
+// Must be called with csrfTokensLock held
+func evictOldestCSRFTokensLocked(count int) {
+	if count <= 0 || len(csrfTokens) == 0 {
+		return
+	}
+
+	// Find oldest tokens
+	type tokenEntry struct {
+		token  string
+		expiry time.Time
+	}
+
+	entries := make([]tokenEntry, 0, len(csrfTokens))
+	for token, expiry := range csrfTokens {
+		entries = append(entries, tokenEntry{token, expiry})
+	}
+
+	// Sort by expiry (oldest first) - simple selection for eviction
+	// For efficiency, we just remove expired ones first, then oldest
+	now := time.Now()
+	evicted := 0
+
+	// First pass: remove expired tokens
+	for _, entry := range entries {
+		if evicted >= count {
+			break
+		}
+		if now.After(entry.expiry) {
+			delete(csrfTokens, entry.token)
+			evicted++
+		}
+	}
+
+	// Second pass: if still need to evict more, remove by oldest expiry
+	if evicted < count {
+		// Sort remaining by expiry
+		for _, entry := range entries {
+			if evicted >= count {
+				break
+			}
+			if _, exists := csrfTokens[entry.token]; exists {
+				delete(csrfTokens, entry.token)
+				evicted++
+			}
+		}
 	}
 }
 

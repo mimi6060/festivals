@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-const testSecretKey = "test-secret-key-for-signing"
+// testSecretKey is a 32+ character secret key used ONLY for unit tests.
+// DO NOT use this in production. Production secrets must be set via environment variables.
+const testSecretKey = "TEST_ONLY_not_for_production_use_32chars_min_secret_key_abc123"
 
 // TestService_GetOrCreateWallet tests the GetOrCreateWallet method
 func TestService_GetOrCreateWallet(t *testing.T) {

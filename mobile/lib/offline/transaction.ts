@@ -13,7 +13,10 @@ import {
 
 // Storage keys
 const OFFLINE_TRANSACTIONS_KEY = '@offline_transactions_v2';
-const PROCESSED_TRANSACTION_IDS_KEY = '@processed_transaction_ids';
+const PROCESSED_TRANSACTION_IDS_KEY = '@processed_transaction_ids_v2';
+
+// TTL for processed transaction IDs (7 days in milliseconds)
+const PROCESSED_ID_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Types
 export interface OfflineTransactionItem {
@@ -267,38 +270,72 @@ export const clearAllOfflineTransactions = async (): Promise<void> => {
 };
 
 // ==============================================================
-// Duplicate Detection
+// Duplicate Detection with TTL
 // ==============================================================
 
+interface ProcessedTransactionEntry {
+  id: string;
+  timestamp: number;
+}
+
 /**
- * Gets the set of processed transaction IDs (for duplicate detection)
+ * Gets the map of processed transaction IDs with timestamps (for duplicate detection)
  */
-export const getProcessedTransactionIds = async (): Promise<Set<string>> => {
+export const getProcessedTransactionEntries = async (): Promise<ProcessedTransactionEntry[]> => {
   try {
     const stored = await AsyncStorage.getItem(PROCESSED_TRANSACTION_IDS_KEY);
     if (!stored) {
-      return new Set();
+      return [];
     }
-    return new Set(JSON.parse(stored));
+    return JSON.parse(stored) as ProcessedTransactionEntry[];
   } catch {
-    return new Set();
+    return [];
   }
 };
 
 /**
- * Adds a transaction ID to the processed set
+ * Gets the set of processed transaction IDs (for duplicate detection)
+ * Filters out expired entries based on TTL
+ */
+export const getProcessedTransactionIds = async (): Promise<Set<string>> => {
+  const entries = await getProcessedTransactionEntries();
+  const now = Date.now();
+
+  // Filter out expired entries
+  const validEntries = entries.filter(
+    (entry) => now - entry.timestamp < PROCESSED_ID_TTL_MS
+  );
+
+  return new Set(validEntries.map((e) => e.id));
+};
+
+/**
+ * Adds a transaction ID to the processed set with timestamp
  */
 export const addProcessedTransactionId = async (transactionId: string): Promise<void> => {
-  const ids = await getProcessedTransactionIds();
-  ids.add(transactionId);
+  const entries = await getProcessedTransactionEntries();
+  const now = Date.now();
 
-  // Keep only last 1000 IDs to prevent unlimited growth
-  const idsArray = Array.from(ids);
-  const trimmedIds = idsArray.slice(-1000);
+  // Filter out expired entries and add new one
+  const validEntries = entries.filter(
+    (entry) => now - entry.timestamp < PROCESSED_ID_TTL_MS
+  );
+
+  // Check if already exists
+  const existingIndex = validEntries.findIndex((e) => e.id === transactionId);
+  if (existingIndex >= 0) {
+    // Update timestamp
+    validEntries[existingIndex].timestamp = now;
+  } else {
+    validEntries.push({ id: transactionId, timestamp: now });
+  }
+
+  // Keep only last 1000 entries to prevent unlimited growth
+  const trimmedEntries = validEntries.slice(-1000);
 
   await AsyncStorage.setItem(
     PROCESSED_TRANSACTION_IDS_KEY,
-    JSON.stringify(trimmedIds)
+    JSON.stringify(trimmedEntries)
   );
 };
 
@@ -308,6 +345,29 @@ export const addProcessedTransactionId = async (transactionId: string): Promise<
 export const isTransactionProcessed = async (transactionId: string): Promise<boolean> => {
   const ids = await getProcessedTransactionIds();
   return ids.has(transactionId);
+};
+
+/**
+ * Cleans up expired transaction IDs from storage
+ */
+export const cleanupExpiredTransactionIds = async (): Promise<number> => {
+  const entries = await getProcessedTransactionEntries();
+  const now = Date.now();
+
+  const validEntries = entries.filter(
+    (entry) => now - entry.timestamp < PROCESSED_ID_TTL_MS
+  );
+
+  const removedCount = entries.length - validEntries.length;
+
+  if (removedCount > 0) {
+    await AsyncStorage.setItem(
+      PROCESSED_TRANSACTION_IDS_KEY,
+      JSON.stringify(validEntries)
+    );
+  }
+
+  return removedCount;
 };
 
 // ==============================================================

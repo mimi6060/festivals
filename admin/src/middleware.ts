@@ -53,7 +53,16 @@ export async function middleware(req: NextRequest) {
   }
 
   // In development without Auth0, allow access with mock user header
+  // SECURITY: Never set mock headers in production - fail safely
   if (!auth0Configured) {
+    if (isProd) {
+      // Production without Auth0 should return 503 (already handled above, but defensive check)
+      return new NextResponse(
+        JSON.stringify({ error: 'Authentication service not configured' }),
+        { status: 503, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
     const response = NextResponse.next()
     response.headers.set('X-Auth-Mode', 'dev-mock')
     response.headers.set('X-Mock-User-Id', 'dev-user-1')

@@ -112,28 +112,11 @@ export default function FestivalDashboardPage() {
       setCurrentFestival(data)
     } catch (error) {
       console.error('Failed to load festival:', error)
-      // Use store data if API fails
-      if (!currentFestival || currentFestival.id !== festivalId) {
-        // Mock data for development
-        const mockFestival: Festival = {
-          id: festivalId,
-          name: 'Summer Fest 2026',
-          slug: 'summer-fest-2026',
-          description: 'The biggest summer festival in Belgium',
-          startDate: '2026-06-15',
-          endDate: '2026-06-17',
-          location: 'Brussels, Belgium',
-          timezone: 'Europe/Brussels',
-          currencyName: 'Griffons',
-          exchangeRate: 0.1,
-          status: 'ACTIVE',
-          settings: {},
-          createdAt: '2026-01-01T00:00:00Z',
-          updatedAt: '2026-01-01T00:00:00Z',
-        }
-        setFestival(mockFestival)
-        setCurrentFestival(mockFestival)
+      // Use store data if API fails and we have cached data for this festival
+      if (currentFestival && currentFestival.id === festivalId) {
+        setFestival(currentFestival)
       }
+      // If no cached data, festival will remain null and error state will be shown
     } finally {
       setIsLoading(false)
     }
@@ -145,15 +128,7 @@ export default function FestivalDashboardPage() {
       setStats(data)
     } catch (error) {
       console.error('Failed to load stats:', error)
-      // Mock stats for development
-      setStats({
-        ticketsSold: 2847,
-        totalRevenue: 45230,
-        walletsCreated: 1892,
-        activeUsers: 1234,
-        todayEntries: 856,
-        activeStaff: 48,
-      })
+      // Stats will remain null - UI should handle this gracefully
     }
   }
 
@@ -166,9 +141,8 @@ export default function FestivalDashboardPage() {
       updateFestival(festivalId, { status: 'ACTIVE' })
     } catch (error) {
       console.error('Failed to activate festival:', error)
-      // Mock for development
-      setFestival({ ...festival, status: 'ACTIVE' })
-      updateFestival(festivalId, { status: 'ACTIVE' })
+      // Show error to user - do not silently fake success
+      alert('Erreur lors de l\'activation du festival. Veuillez réessayer.')
     } finally {
       setIsProcessing(false)
       setActionMenuOpen(false)
@@ -184,8 +158,8 @@ export default function FestivalDashboardPage() {
       updateFestival(festivalId, { status: 'COMPLETED' })
     } catch (error) {
       console.error('Failed to complete festival:', error)
-      setFestival({ ...festival, status: 'COMPLETED' })
-      updateFestival(festivalId, { status: 'COMPLETED' })
+      // Show error to user - do not silently fake success
+      alert('Erreur lors de la finalisation du festival. Veuillez réessayer.')
     } finally {
       setIsProcessing(false)
       setActionMenuOpen(false)
@@ -201,8 +175,8 @@ export default function FestivalDashboardPage() {
       updateFestival(festivalId, { status: 'ARCHIVED' })
     } catch (error) {
       console.error('Failed to archive festival:', error)
-      setFestival({ ...festival, status: 'ARCHIVED' })
-      updateFestival(festivalId, { status: 'ARCHIVED' })
+      // Show error to user - do not silently fake success
+      alert('Erreur lors de l\'archivage du festival. Veuillez réessayer.')
     } finally {
       setIsProcessing(false)
       setActionMenuOpen(false)
