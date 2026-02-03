@@ -1,0 +1,57 @@
+# Staging uses fewer replicas to save resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: festivals-api
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: api
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: festivals-admin
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: admin
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: festivals-worker
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: worker
+          args:
+            - "--concurrency=5"
+            - "--queues=critical:6,default:3,low:1"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

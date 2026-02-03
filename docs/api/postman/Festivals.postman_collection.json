@@ -1,0 +1,996 @@
+{
+  "info": {
+    "_postman_id": "festivals-api-collection",
+    "name": "Festivals API",
+    "description": "Complete API collection for the Festivals platform including authentication, festivals, wallets, payments, tickets, NFC, and more.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "festival_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "wallet_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "stand_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "product_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "ticket_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.accessToken) {",
+                  "    pm.collectionVariables.set('access_token', jsonData.data.accessToken);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Authenticate and get access token"
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "refresh"]
+            }
+          }
+        },
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/me",
+              "host": ["{{base_url}}"],
+              "path": ["me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Festivals",
+      "item": [
+        {
+          "name": "List Festivals",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals?page=1&per_page=20",
+              "host": ["{{base_url}}"],
+              "path": ["festivals"],
+              "query": [
+                {"key": "page", "value": "1"},
+                {"key": "per_page", "value": "20"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Festival",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.id) {",
+                  "    pm.collectionVariables.set('festival_id', jsonData.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Summer Music Festival 2024\",\n  \"description\": \"Annual summer music event featuring top artists\",\n  \"startDate\": \"2024-07-15T10:00:00Z\",\n  \"endDate\": \"2024-07-17T23:00:00Z\",\n  \"location\": \"Central Park, New York\",\n  \"timezone\": \"America/New_York\",\n  \"currencyName\": \"Jetons\",\n  \"exchangeRate\": 0.10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/festivals",
+              "host": ["{{base_url}}"],
+              "path": ["festivals"]
+            }
+          }
+        },
+        {
+          "name": "Get Festival",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Festival",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Summer Music Festival 2024 - Updated\",\n  \"description\": \"Updated description\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Activate Festival",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/activate",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "activate"]
+            }
+          }
+        },
+        {
+          "name": "Archive Festival",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/archive",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "archive"]
+            }
+          }
+        },
+        {
+          "name": "Delete Festival",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wallets",
+      "item": [
+        {
+          "name": "Get My Wallets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/me/wallets",
+              "host": ["{{base_url}}"],
+              "path": ["me", "wallets"]
+            }
+          }
+        },
+        {
+          "name": "Get My Wallet for Festival",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.id) {",
+                  "    pm.collectionVariables.set('wallet_id', jsonData.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/me/wallets/{{festival_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["me", "wallets", "{{festival_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Create Wallet for Festival",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/me/wallets/{{festival_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["me", "wallets", "{{festival_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Generate QR Code",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/me/wallets/{{festival_id}}/qr",
+              "host": ["{{base_url}}"],
+              "path": ["me", "wallets", "{{festival_id}}", "qr"]
+            }
+          }
+        },
+        {
+          "name": "Get My Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/me/wallets/{{festival_id}}/transactions?page=1&per_page=20",
+              "host": ["{{base_url}}"],
+              "path": ["me", "wallets", "{{festival_id}}", "transactions"],
+              "query": [
+                {"key": "page", "value": "1"},
+                {"key": "per_page", "value": "20"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Wallet (Staff)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wallets/{{wallet_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["wallets", "{{wallet_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Top Up Wallet (Staff)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5000,\n  \"paymentMethod\": \"cash\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/wallets/{{wallet_id}}/topup",
+              "host": ["{{base_url}}"],
+              "path": ["wallets", "{{wallet_id}}", "topup"]
+            }
+          }
+        },
+        {
+          "name": "Freeze Wallet (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wallets/{{wallet_id}}/freeze",
+              "host": ["{{base_url}}"],
+              "path": ["wallets", "{{wallet_id}}", "freeze"]
+            }
+          }
+        },
+        {
+          "name": "Unfreeze Wallet (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wallets/{{wallet_id}}/unfreeze",
+              "host": ["{{base_url}}"],
+              "path": ["wallets", "{{wallet_id}}", "unfreeze"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Process Payment",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletId\": \"{{wallet_id}}\",\n  \"amount\": 1500,\n  \"standId\": \"{{stand_id}}\",\n  \"items\": [\n    {\n      \"productId\": \"{{product_id}}\",\n      \"quantity\": 2,\n      \"price\": 750\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/payments",
+              "host": ["{{base_url}}"],
+              "path": ["payments"]
+            }
+          }
+        },
+        {
+          "name": "Validate QR Code",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"qrCode\": \"encoded-qr-code-here\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/payments/validate-qr",
+              "host": ["{{base_url}}"],
+              "path": ["payments", "validate-qr"]
+            }
+          }
+        },
+        {
+          "name": "Refund Payment",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transactionId\": \"{{transaction_id}}\",\n  \"reason\": \"Customer request\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/payments/refund",
+              "host": ["{{base_url}}"],
+              "path": ["payments", "refund"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stands",
+      "item": [
+        {
+          "name": "List Stands",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/stands?page=1&per_page=20",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "stands"],
+              "query": [
+                {"key": "page", "value": "1"},
+                {"key": "per_page", "value": "20"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Stand",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.id) {",
+                  "    pm.collectionVariables.set('stand_id', jsonData.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Main Bar\",\n  \"description\": \"Central bar with drinks and snacks\",\n  \"category\": \"drinks\",\n  \"location\": \"Zone A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/stands",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "stands"]
+            }
+          }
+        },
+        {
+          "name": "Get Stand",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/stands/{{stand_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "stands", "{{stand_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Activate Stand",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/stands/{{stand_id}}/activate",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "stands", "{{stand_id}}", "activate"]
+            }
+          }
+        },
+        {
+          "name": "Get Stand Staff",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/stands/{{stand_id}}/staff",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "stands", "{{stand_id}}", "staff"]
+            }
+          }
+        },
+        {
+          "name": "Assign Staff to Stand",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"user-uuid-here\",\n  \"role\": \"cashier\",\n  \"pin\": \"1234\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/stands/{{stand_id}}/staff",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "stands", "{{stand_id}}", "staff"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "List Products",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/products?standId={{stand_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "products"],
+              "query": [
+                {"key": "standId", "value": "{{stand_id}}"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Product",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.id) {",
+                  "    pm.collectionVariables.set('product_id', jsonData.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"standId\": \"{{stand_id}}\",\n  \"name\": \"Beer\",\n  \"description\": \"Craft beer 330ml\",\n  \"price\": 500,\n  \"category\": \"drinks\",\n  \"stock\": 1000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/products",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "products"]
+            }
+          }
+        },
+        {
+          "name": "Get Product",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/products/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "products", "{{product_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Product",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"price\": 550\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/products/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "products", "{{product_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Stock",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delta\": -10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/products/{{product_id}}/stock",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "products", "{{product_id}}", "stock"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tickets",
+      "item": [
+        {
+          "name": "List Ticket Types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/ticket-types",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "ticket-types"]
+            }
+          }
+        },
+        {
+          "name": "Create Ticket Type",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"VIP Pass\",\n  \"description\": \"Full festival access with VIP perks\",\n  \"price\": 15000,\n  \"quantity\": 500,\n  \"validFrom\": \"2024-07-15T10:00:00Z\",\n  \"validUntil\": \"2024-07-17T23:00:00Z\",\n  \"transferable\": true,\n  \"maxTransfers\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/ticket-types",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "ticket-types"]
+            }
+          }
+        },
+        {
+          "name": "Get My Tickets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/me/tickets",
+              "host": ["{{base_url}}"],
+              "path": ["me", "tickets"]
+            }
+          }
+        },
+        {
+          "name": "Scan Ticket",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TKT-ABC123-XYZ789\",\n  \"scanType\": \"entry\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/tickets/scan",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "tickets", "scan"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "NFC",
+      "item": [
+        {
+          "name": "Activate NFC Tag",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uid\": \"04:A2:B1:C3:D4:E5:F6\",\n  \"walletId\": \"{{wallet_id}}\",\n  \"initialBalance\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/nfc/activate",
+              "host": ["{{base_url}}"],
+              "path": ["nfc", "activate"]
+            }
+          }
+        },
+        {
+          "name": "Get NFC Tag",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/nfc/04:A2:B1:C3:D4:E5:F6",
+              "host": ["{{base_url}}"],
+              "path": ["nfc", "04:A2:B1:C3:D4:E5:F6"]
+            }
+          }
+        },
+        {
+          "name": "Validate NFC for Payment",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 1500\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/nfc/04:A2:B1:C3:D4:E5:F6/validate",
+              "host": ["{{base_url}}"],
+              "path": ["nfc", "04:A2:B1:C3:D4:E5:F6", "validate"]
+            }
+          }
+        },
+        {
+          "name": "Block NFC Tag",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Lost bracelet\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/nfc/04:A2:B1:C3:D4:E5:F6/block",
+              "host": ["{{base_url}}"],
+              "path": ["nfc", "04:A2:B1:C3:D4:E5:F6", "block"]
+            }
+          }
+        },
+        {
+          "name": "Process NFC Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "X-Device-ID", "value": "device-001", "type": "text"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uid\": \"04:A2:B1:C3:D4:E5:F6\",\n  \"amount\": 1500,\n  \"standId\": \"{{stand_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/nfc/bracelets/payment",
+              "host": ["{{base_url}}"],
+              "path": ["nfc", "bracelets", "payment"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Refunds",
+      "item": [
+        {
+          "name": "Get My Refunds",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/me/refunds",
+              "host": ["{{base_url}}"],
+              "path": ["me", "refunds"]
+            }
+          }
+        },
+        {
+          "name": "Request Refund",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletId\": \"{{wallet_id}}\",\n  \"iban\": \"DE89370400440532013000\",\n  \"accountHolder\": \"John Doe\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/me/refunds",
+              "host": ["{{base_url}}"],
+              "path": ["me", "refunds"]
+            }
+          }
+        },
+        {
+          "name": "Get Festival Refunds (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/festivals/{{festival_id}}/refunds",
+              "host": ["{{base_url}}"],
+              "path": ["festivals", "{{festival_id}}", "refunds"]
+            }
+          }
+        },
+        {
+          "name": "Approve Refund (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Approved - valid refund request\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/refunds/{{refund_id}}/approve",
+              "host": ["{{base_url}}"],
+              "path": ["refunds", "{{refund_id}}", "approve"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sync",
+      "item": [
+        {
+          "name": "Submit Offline Batch",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"device-001\",\n  \"transactions\": [\n    {\n      \"localId\": \"local-tx-001\",\n      \"walletId\": \"{{wallet_id}}\",\n      \"amount\": 500,\n      \"standId\": \"{{stand_id}}\",\n      \"timestamp\": \"2024-01-15T10:30:00Z\",\n      \"signature\": \"hmac-signature-here\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/sync/batch",
+              "host": ["{{base_url}}"],
+              "path": ["sync", "batch"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": {"type": "noauth"},
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/../health",
+              "host": ["{{base_url}}"],
+              "path": ["..", "health"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test('Status code is successful', function() {",
+          "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+          "});"
+        ]
+      }
+    }
+  ]
+}

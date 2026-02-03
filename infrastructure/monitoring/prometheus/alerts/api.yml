@@ -1,0 +1,203 @@
+# API Alert Rules for Festival Platform
+groups:
+  - name: api.alerts
+    rules:
+      # High Error Rate
+      - alert: APIHighErrorRate
+        expr: |
+          (
+            sum(rate(festivals_http_requests_total{status=~"5.."}[5m])) by (path)
+            /
+            sum(rate(festivals_http_requests_total[5m])) by (path)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "High API error rate on {{ $labels.path }}"
+          description: "Error rate is {{ $value | humanizePercentage }} on endpoint {{ $labels.path }} (threshold: 5%)"
+          runbook_url: "https://docs.festivals.io/runbooks/api-high-error-rate"
+
+      # High Latency (P99)
+      - alert: APIHighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(festivals_http_request_duration_seconds_bucket[5m])) by (le, path)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High P99 latency on {{ $labels.path }}"
+          description: "P99 latency is {{ $value | humanizeDuration }} on endpoint {{ $labels.path }} (threshold: 2s)"
+          runbook_url: "https://docs.festivals.io/runbooks/api-high-latency"
+
+      # High Latency (P99) - Critical
+      - alert: APIHighLatencyP99Critical
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(festivals_http_request_duration_seconds_bucket[5m])) by (le, path)
+          ) > 5
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Critical P99 latency on {{ $labels.path }}"
+          description: "P99 latency is {{ $value | humanizeDuration }} on endpoint {{ $labels.path }} (threshold: 5s)"
+          runbook_url: "https://docs.festivals.io/runbooks/api-high-latency"
+
+      # High Latency (P50)
+      - alert: APIHighLatencyP50
+        expr: |
+          histogram_quantile(0.50,
+            sum(rate(festivals_http_request_duration_seconds_bucket[5m])) by (le, path)
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High median latency on {{ $labels.path }}"
+          description: "P50 latency is {{ $value | humanizeDuration }} on endpoint {{ $labels.path }} (threshold: 500ms)"
+          runbook_url: "https://docs.festivals.io/runbooks/api-high-latency"
+
+      # Too Many In-Flight Requests
+      - alert: APITooManyInFlightRequests
+        expr: festivals_http_requests_in_flight > 100
+        for: 2m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Too many in-flight requests"
+          description: "Currently {{ $value }} requests in flight (threshold: 100)"
+          runbook_url: "https://docs.festivals.io/runbooks/api-overloaded"
+
+      # API Down
+      - alert: APIDown
+        expr: up{job="festivals-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Festival API is down"
+          description: "The Festival API service is not responding to health checks"
+          runbook_url: "https://docs.festivals.io/runbooks/api-down"
+
+      # High Request Rate (potential DDoS or traffic spike)
+      - alert: APIHighRequestRate
+        expr: sum(rate(festivals_http_requests_total[1m])) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High request rate detected"
+          description: "Request rate is {{ $value | humanize }} req/s (threshold: 1000 req/s)"
+          runbook_url: "https://docs.festivals.io/runbooks/api-high-traffic"
+
+      # Endpoint Specific: Auth failures
+      - alert: APIHighAuthFailures
+        expr: |
+          sum(rate(festivals_http_requests_total{path=~"/api/v1/auth/.*", status="401"}[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High authentication failure rate"
+          description: "{{ $value | humanize }} auth failures per second"
+          runbook_url: "https://docs.festivals.io/runbooks/auth-failures"
+
+  - name: api.slo
+    rules:
+      # SLO: API Availability (99.9%)
+      - alert: SLOAPIAvailabilityBudgetBurning
+        expr: |
+          (
+            1 - (
+              sum(rate(festivals_http_requests_total{status!~"5.."}[1h]))
+              /
+              sum(rate(festivals_http_requests_total[1h]))
+            )
+          ) > (1 - 0.999) * 14.4
+        for: 5m
+        labels:
+          severity: critical
+          team: sre
+          slo: availability
+        annotations:
+          summary: "API availability SLO burning error budget too fast"
+          description: "At current error rate, will exhaust monthly error budget in less than 7 days"
+          runbook_url: "https://docs.festivals.io/runbooks/slo-availability"
+
+      # SLO: API Latency (99% of requests < 500ms)
+      - alert: SLOAPILatencyBudgetBurning
+        expr: |
+          (
+            1 - (
+              sum(rate(festivals_http_request_duration_seconds_bucket{le="0.5"}[1h]))
+              /
+              sum(rate(festivals_http_request_duration_seconds_count[1h]))
+            )
+          ) > (1 - 0.99) * 14.4
+        for: 5m
+        labels:
+          severity: critical
+          team: sre
+          slo: latency
+        annotations:
+          summary: "API latency SLO burning error budget too fast"
+          description: "At current slow request rate, will exhaust monthly error budget in less than 7 days"
+          runbook_url: "https://docs.festivals.io/runbooks/slo-latency"
+
+  - name: api.recording_rules
+    interval: 30s
+    rules:
+      # Pre-compute error rate
+      - record: festivals:http_requests:error_rate_5m
+        expr: |
+          sum(rate(festivals_http_requests_total{status=~"5.."}[5m])) by (path)
+          /
+          sum(rate(festivals_http_requests_total[5m])) by (path)
+
+      # Pre-compute request rate
+      - record: festivals:http_requests:rate_1m
+        expr: sum(rate(festivals_http_requests_total[1m])) by (path, method, status)
+
+      # Pre-compute latency percentiles
+      - record: festivals:http_request_duration:p50_5m
+        expr: |
+          histogram_quantile(0.50,
+            sum(rate(festivals_http_request_duration_seconds_bucket[5m])) by (le, path)
+          )
+
+      - record: festivals:http_request_duration:p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(festivals_http_request_duration_seconds_bucket[5m])) by (le, path)
+          )
+
+      - record: festivals:http_request_duration:p99_5m
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(festivals_http_request_duration_seconds_bucket[5m])) by (le, path)
+          )
+
+      # SLI: Availability
+      - record: festivals:sli:availability_1h
+        expr: |
+          sum(rate(festivals_http_requests_total{status!~"5.."}[1h]))
+          /
+          sum(rate(festivals_http_requests_total[1h]))
+
+      # SLI: Latency (requests under 500ms)
+      - record: festivals:sli:latency_1h
+        expr: |
+          sum(rate(festivals_http_request_duration_seconds_bucket{le="0.5"}[1h]))
+          /
+          sum(rate(festivals_http_request_duration_seconds_count[1h]))

@@ -1,0 +1,297 @@
+# AlertManager Configuration for Festival Platform
+global:
+  # Resolve timeout - time before alert is resolved if not updated
+  resolve_timeout: 5m
+
+  # SMTP settings for email notifications
+  smtp_smarthost: '${SMTP_HOST}:${SMTP_PORT}'
+  smtp_from: '${SMTP_FROM}'
+  smtp_auth_username: '${SMTP_USERNAME}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+  # Slack API URL (set via environment variable)
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+
+  # PagerDuty settings
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# Templates for notifications
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Inhibition rules - suppress alerts when related alerts are firing
+inhibit_rules:
+  # If API is down, suppress high latency alerts
+  - source_match:
+      alertname: 'APIDown'
+    target_match:
+      alertname: 'APIHighLatencyP99'
+    equal: ['instance']
+
+  # If API is down, suppress error rate alerts
+  - source_match:
+      alertname: 'APIDown'
+    target_match:
+      alertname: 'APIHighErrorRate'
+    equal: ['instance']
+
+  # If PostgreSQL is down, suppress DB-related alerts
+  - source_match:
+      alertname: 'PostgreSQLDown'
+    target_match_re:
+      alertname: 'PostgreSQL.*|DB.*'
+    equal: ['instance']
+
+  # If Redis is down, suppress cache-related alerts
+  - source_match:
+      alertname: 'RedisDown'
+    target_match_re:
+      alertname: 'Redis.*|Cache.*'
+    equal: ['instance']
+
+  # Suppress warning if critical is already firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
+
+# Route tree for alert routing
+route:
+  # Default receiver
+  receiver: 'default-receiver'
+
+  # Group alerts by these labels
+  group_by: ['alertname', 'severity', 'team']
+
+  # How long to wait before sending notification for new group
+  group_wait: 30s
+
+  # How long to wait before sending notification about new alerts in existing group
+  group_interval: 5m
+
+  # How long to wait before resending notification
+  repeat_interval: 4h
+
+  # Child routes
+  routes:
+    # Critical alerts - immediate notification via PagerDuty + Slack
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 15m
+      routes:
+        # SRE team handles SLO breaches
+        - match:
+            team: sre
+          receiver: 'sre-pagerduty'
+        # DBA handles database critical issues
+        - match:
+            team: dba
+          receiver: 'dba-pagerduty'
+        # Security team handles security critical
+        - match:
+            team: security
+          receiver: 'security-pagerduty'
+
+    # Warning alerts - Slack notification
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 2h
+      routes:
+        # Backend team warnings
+        - match:
+            team: backend
+          receiver: 'backend-slack'
+        # DBA warnings
+        - match:
+            team: dba
+          receiver: 'dba-slack'
+        # Business team warnings
+        - match:
+            team: business
+          receiver: 'business-slack'
+        # Operations team warnings
+        - match:
+            team: operations
+          receiver: 'operations-slack'
+
+    # Info alerts - Email only
+    - match:
+        severity: info
+      receiver: 'info-email'
+      group_wait: 5m
+      group_interval: 30m
+      repeat_interval: 12h
+
+    # SLO alerts - Special handling
+    - match_re:
+        slo: '.*'
+      receiver: 'slo-alerts'
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 1h
+
+    # Fraud/Security alerts - Immediate
+    - match:
+        category: fraud
+      receiver: 'security-alerts'
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 30m
+
+# Receivers configuration
+receivers:
+  # Default receiver - Slack + Email
+  - name: 'default-receiver'
+    slack_configs:
+      - channel: '#festivals-alerts'
+        send_resolved: true
+        title: '{{ .Status | toUpper }}: {{ .GroupLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          {{ if .Annotations.runbook_url }}*Runbook:* {{ .Annotations.runbook_url }}{{ end }}
+          {{ end }}
+        actions:
+          - type: button
+            text: 'View in Grafana'
+            url: '{{ (index .Alerts 0).GeneratorURL }}'
+          - type: button
+            text: 'Silence'
+            url: '{{ template "__alertmanagerURL" . }}/#/silences/new?filter=%7Balertname%3D%22{{ .GroupLabels.alertname }}%22%7D'
+
+  # Critical alerts - PagerDuty + Slack
+  - name: 'critical-alerts'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        send_resolved: true
+        severity: critical
+        description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+        details:
+          firing: '{{ template "pagerduty.default.instances" .Alerts.Firing }}'
+          resolved: '{{ template "pagerduty.default.instances" .Alerts.Resolved }}'
+          num_firing: '{{ .Alerts.Firing | len }}'
+          num_resolved: '{{ .Alerts.Resolved | len }}'
+    slack_configs:
+      - channel: '#festivals-critical'
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+        title: '{{ .Status | toUpper }}: {{ .GroupLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          {{ if .Annotations.runbook_url }}*Runbook:* {{ .Annotations.runbook_url }}{{ end }}
+          {{ end }}
+
+  # Warning alerts - Slack only
+  - name: 'warning-alerts'
+    slack_configs:
+      - channel: '#festivals-warnings'
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+        title: '{{ .Status | toUpper }}: {{ .GroupLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ if .Annotations.runbook_url }}*Runbook:* {{ .Annotations.runbook_url }}{{ end }}
+          {{ end }}
+
+  # Info alerts - Email
+  - name: 'info-email'
+    email_configs:
+      - to: 'ops-team@festivals.io'
+        send_resolved: true
+        headers:
+          Subject: '[INFO] {{ .GroupLabels.alertname }}'
+
+  # SLO alerts - PagerDuty + Slack
+  - name: 'slo-alerts'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SRE_KEY}'
+        send_resolved: true
+        severity: '{{ .CommonLabels.severity }}'
+        description: 'SLO Breach: {{ .GroupLabels.alertname }}'
+    slack_configs:
+      - channel: '#festivals-slo'
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+        title: 'SLO Alert: {{ .GroupLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}
+          *SLO:* {{ .Labels.slo }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ if .Annotations.runbook_url }}*Runbook:* {{ .Annotations.runbook_url }}{{ end }}
+          {{ end }}
+
+  # Security/Fraud alerts
+  - name: 'security-alerts'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SECURITY_KEY}'
+        send_resolved: true
+        severity: critical
+    slack_configs:
+      - channel: '#festivals-security'
+        send_resolved: true
+        color: 'danger'
+        title: 'SECURITY ALERT: {{ .GroupLabels.alertname }}'
+
+  # Team-specific receivers
+  - name: 'sre-pagerduty'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SRE_KEY}'
+        send_resolved: true
+        severity: critical
+    slack_configs:
+      - channel: '#sre-oncall'
+        send_resolved: true
+
+  - name: 'dba-pagerduty'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_DBA_KEY}'
+        send_resolved: true
+        severity: critical
+    slack_configs:
+      - channel: '#dba-oncall'
+        send_resolved: true
+
+  - name: 'security-pagerduty'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SECURITY_KEY}'
+        send_resolved: true
+        severity: critical
+    slack_configs:
+      - channel: '#security-oncall'
+        send_resolved: true
+
+  - name: 'backend-slack'
+    slack_configs:
+      - channel: '#backend-alerts'
+        send_resolved: true
+
+  - name: 'dba-slack'
+    slack_configs:
+      - channel: '#dba-alerts'
+        send_resolved: true
+
+  - name: 'business-slack'
+    slack_configs:
+      - channel: '#business-alerts'
+        send_resolved: true
+
+  - name: 'operations-slack'
+    slack_configs:
+      - channel: '#operations-alerts'
+        send_resolved: true

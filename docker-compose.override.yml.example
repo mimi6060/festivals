@@ -1,0 +1,252 @@
+# ==============================================================================
+# DOCKER COMPOSE OVERRIDE - LOCAL DEVELOPMENT
+# ==============================================================================
+# This file extends docker-compose.yml with local development settings.
+#
+# Copy this file to docker-compose.override.yml for local development:
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# Docker Compose automatically merges docker-compose.override.yml with
+# docker-compose.yml when you run: docker compose up
+#
+# Customize this file for your local development needs without affecting
+# the shared docker-compose.yml configuration.
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # Backend API - Development Overrides
+  # ============================================================================
+  api:
+    # Override build args for development
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+      args:
+        - GO_VERSION=1.22
+
+    # Development-specific environment variables
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=debug
+      - REQUEST_LOGGING=true
+      - HOT_RELOAD=true
+      # Use docker internal networking
+      - DATABASE_URL=postgres://festivals:password@postgres:5432/festivals?sslmode=disable
+      - REDIS_URL=redis://redis:6379
+      - MINIO_ENDPOINT=minio:9000
+      # Uncomment and set your Auth0 credentials
+      # - AUTH0_DOMAIN=${AUTH0_DOMAIN}
+      # - AUTH0_AUDIENCE=${AUTH0_AUDIENCE}
+      # Uncomment and set your Stripe test key
+      # - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+
+    # Mount source code for hot reload
+    volumes:
+      - ./backend:/app
+      - go_modules:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+
+    # Development ports
+    ports:
+      - "8080:8080"
+      # Debug port (for delve debugger)
+      - "2345:2345"
+      # Metrics port
+      - "9090:9090"
+
+    # Enable stdin/tty for interactive debugging
+    stdin_open: true
+    tty: true
+
+  # ============================================================================
+  # Worker - Development Overrides (if you have a separate worker service)
+  # ============================================================================
+  # worker:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile.dev
+  #   environment:
+  #     - ENVIRONMENT=development
+  #     - DEBUG=true
+  #     - LOG_LEVEL=debug
+  #     - DATABASE_URL=postgres://festivals:password@postgres:5432/festivals?sslmode=disable
+  #     - REDIS_URL=redis://redis:6379
+  #   volumes:
+  #     - ./backend:/app
+  #     - go_modules:/go/pkg/mod
+  #   command: ["go", "run", "./cmd/worker"]
+
+  # ============================================================================
+  # Admin Dashboard - Development Overrides
+  # ============================================================================
+  admin:
+    # Development-specific environment
+    environment:
+      - NODE_ENV=development
+      # Use internal API URL for server-side requests
+      - API_URL=http://api:8080
+      # Browser-accessible API URL
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8080/ws
+      # Uncomment and set your Auth0 credentials
+      # - AUTH0_SECRET=${AUTH0_SECRET}
+      # - AUTH0_BASE_URL=http://localhost:3000
+      # - AUTH0_ISSUER_BASE_URL=https://${AUTH0_DOMAIN}
+      # - AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID}
+      # - AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET}
+
+    # Mount source for hot module replacement
+    volumes:
+      - ./admin:/app
+      - /app/node_modules
+      - /app/.next
+
+    # Development ports
+    ports:
+      - "3000:3000"
+
+    # Ensure API is ready before starting
+    depends_on:
+      api:
+        condition: service_started
+
+  # ============================================================================
+  # PostgreSQL - Development Overrides
+  # ============================================================================
+  postgres:
+    # Use default credentials for development
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-festivals}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-festivals}
+
+    # Expose port for external database tools (DBeaver, pgAdmin, etc.)
+    ports:
+      - "5432:5432"
+
+    # Development-friendly PostgreSQL configuration
+    command: >
+      postgres
+      -c log_statement=all
+      -c log_duration=on
+      -c log_min_duration_statement=100
+      -c shared_preload_libraries=pg_stat_statements
+
+    # Named volume for data persistence
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Initial schema and seed data
+      - ./backend/scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      # Uncomment to add seed data
+      # - ./backend/scripts/seed-dev.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+
+  # ============================================================================
+  # Redis - Development Overrides
+  # ============================================================================
+  redis:
+    # Expose port for external Redis tools (RedisInsight, redis-cli)
+    ports:
+      - "6379:6379"
+
+    # Enable persistence for development
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+    volumes:
+      - redis_data:/data
+
+  # ============================================================================
+  # MinIO - Development Overrides
+  # ============================================================================
+  minio:
+    # Use default credentials for development
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+
+    # Expose ports for S3 API and console
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO Console
+
+    volumes:
+      - minio_data:/data
+
+  # ============================================================================
+  # Adminer - Database Management UI (Development Only)
+  # ============================================================================
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8082:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: pepa-linha-dark
+    depends_on:
+      - postgres
+    networks:
+      - festivals-network
+
+  # ============================================================================
+  # MailHog - Email Testing (Development Only)
+  # ============================================================================
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"   # SMTP server
+      - "8025:8025"   # Web UI
+    networks:
+      - festivals-network
+
+  # ============================================================================
+  # Redis Commander - Redis GUI (Development Only)
+  # ============================================================================
+  # Uncomment to enable Redis Commander for visual Redis management
+  # redis-commander:
+  #   image: rediscommander/redis-commander:latest
+  #   environment:
+  #     - REDIS_HOSTS=local:redis:6379
+  #   ports:
+  #     - "8081:8081"
+  #   depends_on:
+  #     - redis
+  #   networks:
+  #     - festivals-network
+
+  # ============================================================================
+  # pgAdmin - PostgreSQL GUI (Development Only)
+  # ============================================================================
+  # Uncomment to enable pgAdmin for visual PostgreSQL management
+  # pgadmin:
+  #   image: dpage/pgadmin4:latest
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: admin@festivals.app
+  #     PGADMIN_DEFAULT_PASSWORD: admin
+  #     PGADMIN_CONFIG_SERVER_MODE: 'False'
+  #   ports:
+  #     - "5050:80"
+  #   volumes:
+  #     - pgadmin_data:/var/lib/pgadmin
+  #   depends_on:
+  #     - postgres
+  #   networks:
+  #     - festivals-network
+
+# ==============================================================================
+# ADDITIONAL VOLUMES FOR DEVELOPMENT
+# ==============================================================================
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  go_modules:
+  go_build_cache:
+  # pgadmin_data:
+
+# ==============================================================================
+# NETWORK CONFIGURATION
+# ==============================================================================
+networks:
+  festivals-network:
+    driver: bridge

@@ -1,0 +1,212 @@
+# Database Alert Rules for Festival Platform
+groups:
+  - name: database.alerts
+    rules:
+      # PostgreSQL Down
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: dba
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL database is not responding"
+          runbook_url: "https://docs.festivals.io/runbooks/postgres-down"
+
+      # High Connection Usage
+      - alert: PostgreSQLHighConnectionUsage
+        expr: |
+          (
+            sum(pg_stat_activity_count) by (instance)
+            /
+            sum(pg_settings_max_connections) by (instance)
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: dba
+        annotations:
+          summary: "PostgreSQL high connection usage"
+          description: "Connection usage is at {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook_url: "https://docs.festivals.io/runbooks/postgres-connections"
+
+      # Critical Connection Usage
+      - alert: PostgreSQLCriticalConnectionUsage
+        expr: |
+          (
+            sum(pg_stat_activity_count) by (instance)
+            /
+            sum(pg_settings_max_connections) by (instance)
+          ) > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          team: dba
+        annotations:
+          summary: "PostgreSQL critical connection usage"
+          description: "Connection usage is at {{ $value | humanizePercentage }} (threshold: 95%)"
+          runbook_url: "https://docs.festivals.io/runbooks/postgres-connections"
+
+      # Slow Queries
+      - alert: PostgreSQLSlowQueries
+        expr: |
+          rate(pg_stat_activity_max_tx_duration{state="active"}[5m]) > 30
+        for: 5m
+        labels:
+          severity: warning
+          team: dba
+        annotations:
+          summary: "PostgreSQL slow queries detected"
+          description: "Long-running transactions detected (> 30s)"
+          runbook_url: "https://docs.festivals.io/runbooks/postgres-slow-queries"
+
+      # High Query Duration (from application metrics)
+      - alert: DBHighQueryDuration
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(festivals_db_query_duration_seconds_bucket[5m])) by (le, operation, table)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: dba
+        annotations:
+          summary: "High database query duration"
+          description: "P95 query duration for {{ $labels.operation }} on {{ $labels.table }} is {{ $value | humanizeDuration }}"
+          runbook_url: "https://docs.festivals.io/runbooks/db-slow-queries"
+
+      # DB Query Errors
+      - alert: DBHighErrorRate
+        expr: |
+          (
+            sum(rate(festivals_db_errors_total[5m])) by (operation, error_type)
+            /
+            sum(rate(festivals_db_queries_total[5m])) by (operation)
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: dba
+        annotations:
+          summary: "High database error rate"
+          description: "Error rate for {{ $labels.operation }} is {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.festivals.io/runbooks/db-errors"
+
+      # Replication Lag
+      - alert: PostgreSQLReplicationLag
+        expr: pg_replication_lag > 30
+        for: 5m
+        labels:
+          severity: warning
+          team: dba
+        annotations:
+          summary: "PostgreSQL replication lag is high"
+          description: "Replication lag is {{ $value }}s (threshold: 30s)"
+          runbook_url: "https://docs.festivals.io/runbooks/postgres-replication"
+
+      # Critical Replication Lag
+      - alert: PostgreSQLReplicationLagCritical
+        expr: pg_replication_lag > 120
+        for: 2m
+        labels:
+          severity: critical
+          team: dba
+        annotations:
+          summary: "PostgreSQL replication lag is critical"
+          description: "Replication lag is {{ $value }}s (threshold: 120s)"
+          runbook_url: "https://docs.festivals.io/runbooks/postgres-replication"
+
+      # Database Size Growing
+      - alert: PostgreSQLDatabaseSizeGrowing
+        expr: |
+          predict_linear(pg_database_size_bytes[7d], 30 * 24 * 3600) > 100 * 1024 * 1024 * 1024
+        for: 1h
+        labels:
+          severity: warning
+          team: dba
+        annotations:
+          summary: "PostgreSQL database size growing rapidly"
+          description: "Database is predicted to exceed 100GB in 30 days"
+          runbook_url: "https://docs.festivals.io/runbooks/postgres-storage"
+
+      # Deadlocks Detected
+      - alert: PostgreSQLDeadlocks
+        expr: rate(pg_stat_database_deadlocks[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: dba
+        annotations:
+          summary: "PostgreSQL deadlocks detected"
+          description: "{{ $value }} deadlocks per second detected"
+          runbook_url: "https://docs.festivals.io/runbooks/postgres-deadlocks"
+
+      # High Rollback Rate
+      - alert: PostgreSQLHighRollbackRate
+        expr: |
+          (
+            rate(pg_stat_database_xact_rollback[5m])
+            /
+            (rate(pg_stat_database_xact_commit[5m]) + rate(pg_stat_database_xact_rollback[5m]))
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          team: dba
+        annotations:
+          summary: "High transaction rollback rate"
+          description: "Rollback rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+          runbook_url: "https://docs.festivals.io/runbooks/postgres-rollbacks"
+
+      # Bloat / VACUUM Needed
+      - alert: PostgreSQLTableBloat
+        expr: pg_stat_user_tables_n_dead_tup > 10000
+        for: 1h
+        labels:
+          severity: warning
+          team: dba
+        annotations:
+          summary: "PostgreSQL table bloat detected"
+          description: "Table {{ $labels.relname }} has {{ $value }} dead tuples"
+          runbook_url: "https://docs.festivals.io/runbooks/postgres-vacuum"
+
+      # Connection Pool (Application-side)
+      - alert: DBConnectionPoolExhausted
+        expr: festivals_db_connections_in_use / festivals_db_connections_open > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "Connection pool usage at {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.festivals.io/runbooks/db-connection-pool"
+
+  - name: database.recording_rules
+    interval: 30s
+    rules:
+      # Pre-compute connection usage
+      - record: festivals:db:connection_usage
+        expr: |
+          sum(pg_stat_activity_count) by (instance)
+          /
+          sum(pg_settings_max_connections) by (instance)
+
+      # Pre-compute query rate
+      - record: festivals:db:query_rate_1m
+        expr: sum(rate(festivals_db_queries_total[1m])) by (operation, table)
+
+      # Pre-compute error rate
+      - record: festivals:db:error_rate_5m
+        expr: |
+          sum(rate(festivals_db_errors_total[5m])) by (operation, error_type)
+          /
+          sum(rate(festivals_db_queries_total[5m])) by (operation)
+
+      # Pre-compute latency percentiles
+      - record: festivals:db:query_duration_p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(festivals_db_query_duration_seconds_bucket[5m])) by (le, operation, table)
+          )

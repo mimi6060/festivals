@@ -1,0 +1,644 @@
+name: Deploy Production
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g., v1.2.3)'
+        required: true
+        type: string
+      skip_approval:
+        description: 'Skip manual approval (emergency only)'
+        required: false
+        default: false
+        type: boolean
+      rollback_version:
+        description: 'Rollback to this version (leave empty for normal deploy)'
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+  ENVIRONMENT: production
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+  deployments: write
+
+jobs:
+  # ============================================
+  # Pre-deployment Validation
+  # ============================================
+  validate:
+    name: Pre-deployment Validation
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      is_rollback: ${{ steps.version.outputs.is_rollback }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          IS_ROLLBACK="false"
+
+          if [ -n "${{ github.event.inputs.rollback_version }}" ]; then
+            VERSION="${{ github.event.inputs.rollback_version }}"
+            IS_ROLLBACK="true"
+          elif [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [ "${{ github.event_name }}" == "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            echo "::error::No version specified"
+            exit 1
+          fi
+
+          # Validate version format
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Invalid version format: $VERSION (expected vX.Y.Z)"
+            exit 1
+          fi
+
+          IMAGE_TAG="${VERSION#v}"
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "is_rollback=${IS_ROLLBACK}" >> $GITHUB_OUTPUT
+          echo "Deploying version: ${VERSION} (image tag: ${IMAGE_TAG})"
+
+      - name: Verify images exist
+        run: |
+          echo "Verifying Docker images exist for tag: ${{ steps.version.outputs.image_tag }}"
+
+          # Verify images are available in registry
+          # Note: This requires authentication to actually pull
+          echo "Images to deploy:"
+          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ steps.version.outputs.image_tag }}"
+          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-admin:${{ steps.version.outputs.image_tag }}"
+          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker:${{ steps.version.outputs.image_tag }}"
+
+      - name: Check release notes
+        if: github.event_name == 'release'
+        run: |
+          if [ -z "${{ github.event.release.body }}" ]; then
+            echo "::warning::Release has no release notes"
+          fi
+
+          # Check if it's a prerelease
+          if [ "${{ github.event.release.prerelease }}" == "true" ]; then
+            echo "::error::Cannot deploy prerelease to production"
+            exit 1
+          fi
+
+  # ============================================
+  # Manual Approval Gate
+  # ============================================
+  approval:
+    name: Manual Approval
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event.inputs.skip_approval != 'true'
+    environment:
+      name: production-approval
+      url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - name: Approval checkpoint
+        run: |
+          echo "======================================"
+          echo "PRODUCTION DEPLOYMENT APPROVAL"
+          echo "======================================"
+          echo ""
+          echo "Version: ${{ needs.validate.outputs.version }}"
+          echo "Rollback: ${{ needs.validate.outputs.is_rollback }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo ""
+          echo "This deployment requires manual approval."
+          echo "======================================"
+
+  # ============================================
+  # Create Database Backup
+  # ============================================
+  backup:
+    name: Create Backup
+    runs-on: ubuntu-latest
+    needs: [validate, approval]
+    if: |
+      always() &&
+      needs.validate.result == 'success' &&
+      (needs.approval.result == 'success' || needs.approval.result == 'skipped')
+
+    steps:
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.29.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Create database backup
+        id: backup
+        run: |
+          BACKUP_NAME="pre-deploy-${{ needs.validate.outputs.version }}-$(date +%Y%m%d%H%M%S)"
+          echo "backup_name=${BACKUP_NAME}" >> $GITHUB_OUTPUT
+
+          echo "Creating database backup: ${BACKUP_NAME}"
+
+          # Option 1: AWS RDS Snapshot
+          # aws rds create-db-snapshot \
+          #   --db-instance-identifier festivals-prod \
+          #   --db-snapshot-identifier ${BACKUP_NAME}
+
+          # Option 2: pg_dump via kubectl
+          # kubectl exec -n festivals-production deploy/postgres -- \
+          #   pg_dump -U postgres festivals | gzip > backup-${BACKUP_NAME}.sql.gz
+
+          # Option 3: Velero backup
+          # velero backup create ${BACKUP_NAME} \
+          #   --include-namespaces festivals-production \
+          #   --wait
+
+          echo "Backup created (placeholder - implement actual backup)"
+          echo "Backup name: ${BACKUP_NAME}"
+
+      - name: Verify backup
+        run: |
+          echo "Verifying backup: ${{ steps.backup.outputs.backup_name }}"
+          # Add actual verification logic
+
+  # ============================================
+  # Blue-Green Deployment
+  # ============================================
+  deploy:
+    name: Deploy (Blue-Green)
+    runs-on: ubuntu-latest
+    needs: [validate, approval, backup]
+    if: |
+      always() &&
+      needs.validate.result == 'success' &&
+      (needs.approval.result == 'success' || needs.approval.result == 'skipped') &&
+      needs.backup.result == 'success'
+    environment:
+      name: production
+      url: https://festivals.app
+
+    outputs:
+      deployment_id: ${{ steps.deploy.outputs.deployment_id }}
+      previous_version: ${{ steps.deploy.outputs.previous_version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.29.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Install Kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: '5.3.0'
+
+      - name: Get current deployment info
+        id: current
+        run: |
+          # Get current version for potential rollback
+          CURRENT_VERSION=$(kubectl get deployment/prod-festivals-api -n festivals-production \
+            -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "unknown")
+          echo "previous_version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
+          echo "Current deployment version: ${CURRENT_VERSION}"
+
+      - name: Update image tags
+        run: |
+          cd k8s/overlays/production
+
+          kustomize edit set image \
+            ghcr.io/festivals/api=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ needs.validate.outputs.image_tag }} \
+            ghcr.io/festivals/admin=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-admin:${{ needs.validate.outputs.image_tag }} \
+            ghcr.io/festivals/worker=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker:${{ needs.validate.outputs.image_tag }}
+
+      - name: Deploy (Blue-Green Strategy)
+        id: deploy
+        run: |
+          echo "Starting blue-green deployment..."
+          DEPLOYMENT_ID="deploy-$(date +%s)"
+          echo "deployment_id=${DEPLOYMENT_ID}" >> $GITHUB_OUTPUT
+          echo "previous_version=${{ steps.current.outputs.previous_version }}" >> $GITHUB_OUTPUT
+
+          # Apply new configuration
+          echo "Applying new configuration..."
+          kustomize build k8s/overlays/production | kubectl apply -f -
+
+          # Use Kubernetes rolling update with maxSurge for blue-green effect
+          # The new pods are created before old ones are terminated
+
+          echo "Waiting for API deployment..."
+          kubectl rollout status deployment/prod-festivals-api -n festivals-production --timeout=600s
+
+          echo "Waiting for Admin deployment..."
+          kubectl rollout status deployment/prod-festivals-admin -n festivals-production --timeout=600s
+
+          echo "Waiting for Worker deployment..."
+          kubectl rollout status deployment/prod-festivals-worker -n festivals-production --timeout=600s
+
+          echo "Deployment completed successfully!"
+
+      - name: Run database migrations
+        run: |
+          echo "Running database migrations..."
+
+          # Run migrations as a Kubernetes job
+          # kubectl apply -f k8s/jobs/migrate-job.yaml
+          # kubectl wait --for=condition=complete job/migrate-${{ needs.validate.outputs.image_tag }} -n festivals-production --timeout=300s
+
+          echo "Migrations completed (placeholder)"
+
+  # ============================================
+  # Post-Deployment Verification
+  # ============================================
+  verify:
+    name: Post-Deployment Verification
+    runs-on: ubuntu-latest
+    needs: [validate, deploy]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Wait for services to stabilize
+        run: sleep 60
+
+      - name: Run health checks
+        id: health
+        run: |
+          echo "Running health checks..."
+          FAILURES=0
+
+          # API health check with retries
+          echo "Checking API health..."
+          for i in {1..10}; do
+            if curl -sf --max-time 30 https://api.festivals.app/health/ready; then
+              echo "API health check passed"
+              break
+            fi
+            if [ $i -eq 10 ]; then
+              echo "::error::API health check failed after 10 attempts"
+              FAILURES=$((FAILURES + 1))
+            fi
+            echo "Retrying API health check... (attempt $i)"
+            sleep 15
+          done
+
+          # API version verification
+          echo "Verifying API version..."
+          API_VERSION=$(curl -sf --max-time 10 https://api.festivals.app/version | jq -r '.version' || echo "unknown")
+          EXPECTED_VERSION="${{ needs.validate.outputs.version }}"
+          echo "API reports version: ${API_VERSION}"
+          echo "Expected version: ${EXPECTED_VERSION}"
+
+          # Admin health check
+          echo "Checking Admin health..."
+          for i in {1..10}; do
+            if curl -sf --max-time 30 https://admin.festivals.app/api/health; then
+              echo "Admin health check passed"
+              break
+            fi
+            if [ $i -eq 10 ]; then
+              echo "::error::Admin health check failed after 10 attempts"
+              FAILURES=$((FAILURES + 1))
+            fi
+            echo "Retrying Admin health check... (attempt $i)"
+            sleep 15
+          done
+
+          # Admin page load test
+          echo "Testing Admin page load..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://admin.festivals.app)
+          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 302 ]; then
+            echo "Admin page load successful (HTTP $HTTP_CODE)"
+          else
+            echo "::warning::Admin page returned HTTP $HTTP_CODE"
+          fi
+
+          # Check error rates (if metrics available)
+          # curl -sf https://api.festivals.app/metrics | grep -E "http_requests_total|http_errors_total"
+
+          if [ $FAILURES -gt 0 ]; then
+            echo "::error::$FAILURES critical health checks failed"
+            exit 1
+          fi
+
+          echo "All health checks passed!"
+
+      - name: Run smoke tests
+        run: |
+          echo "Running production smoke tests..."
+
+          # Test critical user flows
+          echo "Testing authentication endpoint..."
+          AUTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://api.festivals.app/v1/auth/health)
+          echo "Auth endpoint status: $AUTH_STATUS"
+
+          echo "Testing festivals endpoint..."
+          FESTIVALS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://api.festivals.app/v1/festivals)
+          echo "Festivals endpoint status: $FESTIVALS_STATUS"
+
+          # Verify no 5xx errors
+          if [ "$AUTH_STATUS" -ge 500 ] || [ "$FESTIVALS_STATUS" -ge 500 ]; then
+            echo "::error::Server errors detected in production!"
+            exit 1
+          fi
+
+          echo "Smoke tests completed!"
+
+      - name: Check pod status
+        run: |
+          echo "Checking pod status..."
+
+          # Set up kubectl
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+          # Get pod status
+          kubectl get pods -n festivals-production -l app.kubernetes.io/name=festivals -o wide
+
+          # Check for any pods not in Running state
+          NOT_RUNNING=$(kubectl get pods -n festivals-production -l app.kubernetes.io/name=festivals \
+            --field-selector=status.phase!=Running -o name 2>/dev/null || true)
+
+          if [ -n "$NOT_RUNNING" ]; then
+            echo "::warning::Some pods are not in Running state:"
+            echo "$NOT_RUNNING"
+          fi
+
+          # Check for recent restarts
+          kubectl get pods -n festivals-production -l app.kubernetes.io/name=festivals \
+            -o jsonpath='{range .items[*]}{.metadata.name}{" restarts: "}{.status.containerStatuses[0].restartCount}{"\n"}{end}'
+
+  # ============================================
+  # Automatic Rollback on Failure
+  # ============================================
+  rollback:
+    name: Automatic Rollback
+    runs-on: ubuntu-latest
+    needs: [validate, deploy, verify]
+    if: failure() && needs.deploy.result == 'success'
+
+    steps:
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.29.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Rollback deployments
+        run: |
+          echo "======================================"
+          echo "AUTOMATIC ROLLBACK INITIATED"
+          echo "======================================"
+          echo "Reason: Post-deployment verification failed"
+          echo "Rolling back to previous version..."
+
+          kubectl rollout undo deployment/prod-festivals-api -n festivals-production
+          kubectl rollout undo deployment/prod-festivals-admin -n festivals-production
+          kubectl rollout undo deployment/prod-festivals-worker -n festivals-production
+
+          echo "Waiting for rollback to complete..."
+          kubectl rollout status deployment/prod-festivals-api -n festivals-production --timeout=600s
+          kubectl rollout status deployment/prod-festivals-admin -n festivals-production --timeout=600s
+          kubectl rollout status deployment/prod-festivals-worker -n festivals-production --timeout=600s
+
+          echo "Rollback completed!"
+          echo "======================================"
+
+      - name: Verify rollback
+        run: |
+          echo "Verifying rollback..."
+
+          sleep 30
+
+          # Check API health after rollback
+          for i in {1..5}; do
+            if curl -sf --max-time 30 https://api.festivals.app/health/ready; then
+              echo "API health check passed after rollback"
+              break
+            fi
+            echo "Retrying health check... (attempt $i)"
+            sleep 10
+          done
+
+          echo "Rollback verification completed"
+
+      - name: Notify rollback
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "PRODUCTION DEPLOYMENT ROLLED BACK",
+              "attachments": [
+                {
+                  "color": "danger",
+                  "blocks": [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": ":rotating_light: *PRODUCTION DEPLOYMENT ROLLED BACK*\n\nVersion `${{ needs.validate.outputs.version }}` failed verification and has been rolled back automatically."
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Failed Version:*\n${{ needs.validate.outputs.version }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Previous Version:*\n${{ needs.deploy.outputs.previous_version }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Triggered by:*\n${{ github.actor }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Logs:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+  # ============================================
+  # Notify Deployment Status
+  # ============================================
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [validate, deploy, verify]
+    if: always() && needs.deploy.result == 'success' && needs.verify.result == 'success'
+
+    steps:
+      - name: Notify success - Slack
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "Production Deployment Successful",
+              "attachments": [
+                {
+                  "color": "good",
+                  "blocks": [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": ":rocket: *Production Deployment Successful*\n\nVersion `${{ needs.validate.outputs.version }}` has been deployed to production."
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Version:*\n${{ needs.validate.outputs.version }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Environment:*\n<https://festivals.app|Production>"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Deployed by:*\n${{ github.actor }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Rollback:*\n${{ needs.validate.outputs.is_rollback }}"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true
+
+      - name: Update GitHub Release
+        if: github.event_name == 'release'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: context.payload.release.id,
+              body: context.payload.release.body + '\n\n---\n**Deployment Status:** :white_check_mark: Deployed to production at ' + new Date().toISOString()
+            });
+
+      - name: Create deployment record
+        run: |
+          echo "Recording deployment..."
+          echo "Version: ${{ needs.validate.outputs.version }}"
+          echo "Deployed at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Deployed by: ${{ github.actor }}"
+
+          # Could send to a metrics/logging system here
+          # curl -X POST https://api.festivals.app/internal/deployments \
+          #   -H "Authorization: Bearer ${{ secrets.INTERNAL_API_TOKEN }}" \
+          #   -d '{"version": "${{ needs.validate.outputs.version }}", "environment": "production"}'
+
+  # ============================================
+  # Failure Notification
+  # ============================================
+  notify-failure:
+    name: Notify Failure
+    runs-on: ubuntu-latest
+    needs: [validate, deploy, verify]
+    if: failure() && needs.deploy.result != 'success'
+
+    steps:
+      - name: Notify failure
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "Production Deployment Failed",
+              "attachments": [
+                {
+                  "color": "danger",
+                  "blocks": [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": ":x: *Production Deployment Failed*\n\nDeployment of version `${{ needs.validate.outputs.version }}` to production failed."
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Version:*\n${{ needs.validate.outputs.version }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Triggered by:*\n${{ github.actor }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Workflow:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true

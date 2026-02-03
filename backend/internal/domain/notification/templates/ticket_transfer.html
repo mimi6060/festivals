@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Ticket Transfer</title>
+</head>
+<body>
+    {{if .IsRecipient}}
+    <h1>You Received a Ticket!</h1>
+    <p>Hi {{.RecipientName}},</p>
+    <p>{{.SenderName}} has transferred a ticket to you!</p>
+    {{else}}
+    <h1>Ticket Transfer Confirmed</h1>
+    <p>Hi {{.SenderName}},</p>
+    <p>You have successfully transferred your ticket to {{.RecipientName}}.</p>
+    {{end}}
+    <ul>
+        <li>Festival: {{.FestivalName}}</li>
+        <li>Ticket Type: {{.TicketType}}</li>
+        <li>Code: {{.TicketCode}}</li>
+        <li>Date: {{.FestivalDate}}</li>
+        <li>Venue: {{.FestivalVenue}}</li>
+    </ul>
+    {{if .IsRecipient}}
+    <p>View your ticket at: <a href="{{.TicketURL}}">{{.TicketURL}}</a></p>
+    {{end}}
+</body>
+</html>

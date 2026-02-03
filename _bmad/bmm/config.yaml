@@ -1,0 +1,15 @@
+# BMAD Configuration for Festivals Project
+
+project_name: "Festivals"
+user_name: "Michel"
+communication_language: "fr"
+document_output_language: "fr"
+user_skill_level: "intermediate"
+
+output_folder: "_bmad-output"
+planning_artifacts: "_bmad-output/planning-artifacts"
+implementation_artifacts: "_bmad-output/implementation-artifacts"
+project_knowledge: "docs"
+
+tea_use_mcp_enhancements: false
+tea_use_playwright_utils: false

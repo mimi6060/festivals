@@ -1,0 +1,295 @@
+# Business Alert Rules for Festival Platform
+groups:
+  - name: business.transactions
+    rules:
+      # High Failed Transaction Rate
+      - alert: HighFailedTransactionRate
+        expr: |
+          (
+            sum(rate(festivals_transactions_total{status="failed"}[5m])) by (festival_id)
+            /
+            sum(rate(festivals_transactions_total[5m])) by (festival_id)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: business
+          category: transactions
+        annotations:
+          summary: "High failed transaction rate for festival {{ $labels.festival_id }}"
+          description: "Transaction failure rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+          runbook_url: "https://docs.festivals.io/runbooks/transaction-failures"
+
+      # Transaction Volume Drop
+      - alert: TransactionVolumeDrop
+        expr: |
+          (
+            sum(rate(festivals_transactions_total[5m])) by (festival_id)
+            /
+            sum(rate(festivals_transactions_total[5m] offset 1h)) by (festival_id)
+          ) < 0.5
+        for: 15m
+        labels:
+          severity: warning
+          team: business
+          category: transactions
+        annotations:
+          summary: "Transaction volume dropped significantly"
+          description: "Transaction volume is {{ $value | humanizePercentage }} of the level 1 hour ago"
+          runbook_url: "https://docs.festivals.io/runbooks/transaction-volume"
+
+      # No Transactions (During Festival Hours)
+      - alert: NoTransactions
+        expr: |
+          sum(rate(festivals_transactions_total[10m])) by (festival_id) == 0
+          and
+          festivals_festivals_active > 0
+        for: 15m
+        labels:
+          severity: warning
+          team: business
+          category: transactions
+        annotations:
+          summary: "No transactions recorded for active festival"
+          description: "No transactions in the last 15 minutes for festival {{ $labels.festival_id }}"
+          runbook_url: "https://docs.festivals.io/runbooks/no-transactions"
+
+      # Unusually High Transaction Amount
+      - alert: UnusuallyHighTransactionAmount
+        expr: |
+          histogram_quantile(0.99, sum(rate(festivals_transaction_amount_cents_bucket[5m])) by (le, festival_id))
+          > 50000
+        for: 5m
+        labels:
+          severity: warning
+          team: business
+          category: fraud
+        annotations:
+          summary: "Unusually high transaction amounts detected"
+          description: "P99 transaction amount is {{ $value | humanize }}cents for festival {{ $labels.festival_id }}"
+          runbook_url: "https://docs.festivals.io/runbooks/suspicious-transactions"
+
+      # Revenue Per Minute Threshold
+      - alert: RevenuePerMinuteLow
+        expr: |
+          sum(rate(festivals_transaction_amount_cents{status="success"}[5m])) by (festival_id) * 60 < 1000
+          and
+          festivals_festival_attendees_current{festival_id=~".+"} > 100
+        for: 30m
+        labels:
+          severity: warning
+          team: business
+          category: revenue
+        annotations:
+          summary: "Low revenue per minute"
+          description: "Revenue is less than $10/minute for festival {{ $labels.festival_id }} with {{ $value }} attendees"
+          runbook_url: "https://docs.festivals.io/runbooks/low-revenue"
+
+  - name: business.wallets
+    rules:
+      # Low Wallet Balance Alerts
+      - alert: WalletLowBalanceRate
+        expr: |
+          sum(rate(festivals_transactions_total{status="insufficient_balance"}[5m])) by (festival_id)
+          > 1
+        for: 10m
+        labels:
+          severity: warning
+          team: business
+          category: wallets
+        annotations:
+          summary: "High rate of insufficient balance transactions"
+          description: "{{ $value | humanize }} transactions/sec failing due to low balance for festival {{ $labels.festival_id }}"
+          runbook_url: "https://docs.festivals.io/runbooks/low-balance"
+
+      # Wallet Creation Spike (potential fraud)
+      - alert: WalletCreationSpike
+        expr: |
+          rate(festivals_wallets_created_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+          category: fraud
+        annotations:
+          summary: "Unusual wallet creation rate"
+          description: "{{ $value | humanize }} wallets being created per second"
+          runbook_url: "https://docs.festivals.io/runbooks/suspicious-wallet-creation"
+
+      # Active Wallets Drop
+      - alert: ActiveWalletsDrop
+        expr: |
+          delta(festivals_wallets_active[30m]) < -100
+        for: 5m
+        labels:
+          severity: warning
+          team: business
+          category: wallets
+        annotations:
+          summary: "Significant drop in active wallets"
+          description: "Active wallets decreased by {{ $value | humanize }} in the last 30 minutes"
+          runbook_url: "https://docs.festivals.io/runbooks/wallet-activity"
+
+  - name: business.tickets
+    rules:
+      # Ticket Scan Failures
+      - alert: HighTicketScanFailureRate
+        expr: |
+          (
+            sum(rate(festivals_tickets_scanned_total{scan_type="invalid"}[5m])) by (festival_id)
+            /
+            sum(rate(festivals_tickets_scanned_total[5m])) by (festival_id)
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          team: operations
+          category: tickets
+        annotations:
+          summary: "High ticket scan failure rate"
+          description: "{{ $value | humanizePercentage }} of ticket scans are failing for festival {{ $labels.festival_id }}"
+          runbook_url: "https://docs.festivals.io/runbooks/ticket-scan-failures"
+
+      # Duplicate Scan Attempts
+      - alert: HighDuplicateScanRate
+        expr: |
+          sum(rate(festivals_tickets_scanned_total{scan_type="duplicate"}[5m])) by (festival_id) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+          category: fraud
+        annotations:
+          summary: "High rate of duplicate ticket scans"
+          description: "{{ $value | humanize }} duplicate scans per second for festival {{ $labels.festival_id }}"
+          runbook_url: "https://docs.festivals.io/runbooks/duplicate-scans"
+
+      # Ticket Sales Spike
+      - alert: TicketSalesSpike
+        expr: |
+          rate(festivals_tickets_issued_total[5m])
+          >
+          rate(festivals_tickets_issued_total[5m] offset 1h) * 3
+        for: 5m
+        labels:
+          severity: info
+          team: business
+          category: tickets
+        annotations:
+          summary: "Ticket sales spike detected"
+          description: "Ticket sales are 3x higher than 1 hour ago"
+          runbook_url: "https://docs.festivals.io/runbooks/ticket-spike"
+
+  - name: business.attendees
+    rules:
+      # Attendee Count Approaching Capacity
+      - alert: AttendeeCapacityWarning
+        expr: |
+          festivals_festival_attendees_current > 5000
+        for: 5m
+        labels:
+          severity: warning
+          team: operations
+          category: capacity
+        annotations:
+          summary: "Festival approaching capacity"
+          description: "Festival {{ $labels.festival_id }} has {{ $value | humanize }} attendees"
+          runbook_url: "https://docs.festivals.io/runbooks/capacity-warning"
+
+      # Rapid Attendee Influx
+      - alert: RapidAttendeeInflux
+        expr: |
+          deriv(festivals_festival_attendees_current[5m]) > 100
+        for: 5m
+        labels:
+          severity: info
+          team: operations
+          category: capacity
+        annotations:
+          summary: "Rapid increase in attendees"
+          description: "Festival {{ $labels.festival_id }} seeing {{ $value | humanize }} new attendees per minute"
+          runbook_url: "https://docs.festivals.io/runbooks/attendee-influx"
+
+      # No Active Festivals (During Expected Hours)
+      - alert: NoActiveFestivals
+        expr: festivals_festivals_active == 0
+        for: 30m
+        labels:
+          severity: info
+          team: operations
+          category: status
+        annotations:
+          summary: "No active festivals"
+          description: "There are currently no active festivals in the system"
+
+  - name: business.slo
+    rules:
+      # SLO: Transaction Success Rate (99.5%)
+      - alert: SLOTransactionSuccessRate
+        expr: |
+          (
+            sum(rate(festivals_transactions_total{status="success"}[1h]))
+            /
+            sum(rate(festivals_transactions_total[1h]))
+          ) < 0.995
+        for: 15m
+        labels:
+          severity: critical
+          team: sre
+          slo: transactions
+        annotations:
+          summary: "Transaction success rate SLO breach"
+          description: "Transaction success rate is {{ $value | humanizePercentage }} (SLO: 99.5%)"
+          runbook_url: "https://docs.festivals.io/runbooks/slo-transactions"
+
+      # SLO: Ticket Scan Success Rate (99%)
+      - alert: SLOTicketScanSuccessRate
+        expr: |
+          (
+            sum(rate(festivals_tickets_scanned_total{scan_type="success"}[1h]))
+            /
+            sum(rate(festivals_tickets_scanned_total[1h]))
+          ) < 0.99
+        for: 15m
+        labels:
+          severity: warning
+          team: sre
+          slo: tickets
+        annotations:
+          summary: "Ticket scan success rate SLO breach"
+          description: "Ticket scan success rate is {{ $value | humanizePercentage }} (SLO: 99%)"
+          runbook_url: "https://docs.festivals.io/runbooks/slo-tickets"
+
+  - name: business.recording_rules
+    interval: 30s
+    rules:
+      # Transaction success rate
+      - record: festivals:transactions:success_rate_5m
+        expr: |
+          sum(rate(festivals_transactions_total{status="success"}[5m])) by (festival_id)
+          /
+          sum(rate(festivals_transactions_total[5m])) by (festival_id)
+
+      # Revenue per minute (in dollars)
+      - record: festivals:revenue:dollars_per_minute
+        expr: |
+          sum(rate(festivals_transaction_amount_cents{status="success"}[1m])) by (festival_id) * 60 / 100
+
+      # Transactions per minute
+      - record: festivals:transactions:per_minute
+        expr: |
+          sum(rate(festivals_transactions_total{status="success"}[1m])) by (festival_id, type) * 60
+
+      # Average transaction value
+      - record: festivals:transactions:avg_value_5m
+        expr: |
+          sum(rate(festivals_transaction_amount_cents{status="success"}[5m])) by (festival_id)
+          /
+          sum(rate(festivals_transactions_total{status="success"}[5m])) by (festival_id)
+
+      # Ticket scan success rate
+      - record: festivals:tickets:scan_success_rate_5m
+        expr: |
+          sum(rate(festivals_tickets_scanned_total{scan_type="success"}[5m])) by (festival_id)
+          /
+          sum(rate(festivals_tickets_scanned_total[5m])) by (festival_id)

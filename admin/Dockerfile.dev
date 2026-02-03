@@ -1,0 +1,29 @@
+# Development Dockerfile for Next.js Admin
+FROM node:20-alpine
+
+# Enable corepack for pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Create non-root user for development
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -u 1001 -S nextjs -G nodejs
+
+WORKDIR /app
+
+# Copy package files
+COPY --chown=nextjs:nodejs package.json ./
+
+# Install dependencies (without frozen lockfile for dev)
+RUN pnpm install
+
+# Copy source code
+COPY --chown=nextjs:nodejs . .
+
+# Switch to non-root user
+USER nextjs
+
+# Expose port
+EXPOSE 3000
+
+# Start development server
+CMD ["pnpm", "dev"]

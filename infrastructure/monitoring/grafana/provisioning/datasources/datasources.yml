@@ -1,0 +1,57 @@
+# Grafana Datasources Provisioning
+apiVersion: 1
+
+datasources:
+  # Prometheus - Primary metrics datasource
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      manageAlerts: true
+      prometheusType: Prometheus
+      prometheusVersion: "2.51.0"
+      timeInterval: "15s"
+      exemplarTraceIdDestinations:
+        - name: traceId
+          datasourceUid: tempo
+    version: 1
+
+  # AlertManager - For alert annotations
+  - name: AlertManager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    editable: false
+    jsonData:
+      implementation: prometheus
+      handleGrafanaManagedAlerts: true
+    version: 1
+
+  # Loki - For logs (optional, enable if using)
+  # - name: Loki
+  #   type: loki
+  #   access: proxy
+  #   url: http://loki:3100
+  #   editable: false
+  #   jsonData:
+  #     maxLines: 1000
+  #   version: 1
+
+  # Tempo - For traces (optional, enable if using)
+  # - name: Tempo
+  #   type: tempo
+  #   access: proxy
+  #   url: http://tempo:3200
+  #   editable: false
+  #   uid: tempo
+  #   jsonData:
+  #     tracesToLogs:
+  #       datasourceUid: loki
+  #       tags: ['job', 'instance']
+  #       mappedTags: [{ key: 'service.name', value: 'service' }]
+  #       mapTagNamesEnabled: true
+  #   version: 1

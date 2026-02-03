@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Festival Ticket</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 40px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .festival-logo {
+            width: 120px;
+            height: auto;
+            margin-bottom: 20px;
+        }
+        .success-badge {
+            display: inline-block;
+            background-color: #10b981;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+        h1 {
+            color: #1f2937;
+            font-size: 26px;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #6b7280;
+            font-size: 16px;
+            margin-bottom: 30px;
+        }
+        .ticket-card {
+            background: linear-gradient(135deg, {{if .PrimaryColor}}{{.PrimaryColor}}{{else}}#6366f1{{end}} 0%, {{if .SecondaryColor}}{{.SecondaryColor}}{{else}}#8b5cf6{{end}} 100%);
+            border-radius: 16px;
+            padding: 30px;
+            color: white;
+            margin-bottom: 30px;
+            position: relative;
+            overflow: hidden;
+        }
+        .ticket-card:before {
+            content: "";
+            position: absolute;
+            top: -50px;
+            right: -50px;
+            width: 150px;
+            height: 150px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+        }
+        .ticket-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+        .ticket-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            opacity: 0.8;
+            margin-bottom: 5px;
+        }
+        .festival-name {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .ticket-type-badge {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .qr-section {
+            text-align: center;
+            padding: 25px;
+            background: white;
+            border-radius: 12px;
+            margin: 20px 0;
+        }
+        .qr-code {
+            width: 200px;
+            height: 200px;
+            margin: 0 auto 15px;
+        }
+        .qr-code img {
+            width: 100%;
+            height: 100%;
+        }
+        .ticket-code {
+            font-family: monospace;
+            font-size: 16px;
+            letter-spacing: 2px;
+            color: #1f2937;
+            font-weight: 600;
+        }
+        .ticket-details {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .ticket-detail-item {
+            flex: 1;
+            min-width: 100px;
+        }
+        .ticket-detail-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.7;
+        }
+        .ticket-detail-value {
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .info-section {
+            background-color: #f9fafb;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+        .info-section h3 {
+            color: #1f2937;
+            font-size: 16px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            color: #6b7280;
+        }
+        .info-value {
+            color: #1f2937;
+            font-weight: 500;
+            text-align: right;
+        }
+        .important-notice {
+            background-color: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px 20px;
+            margin: 25px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .important-notice h4 {
+            color: #92400e;
+            margin: 0 0 8px 0;
+            font-size: 14px;
+        }
+        .important-notice p {
+            margin: 0;
+            color: #92400e;
+            font-size: 13px;
+        }
+        .practical-info {
+            background-color: #eff6ff;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+        .practical-info h3 {
+            color: #1e40af;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+        .practical-info ul {
+            margin: 0;
+            padding-left: 20px;
+            color: #1e3a8a;
+        }
+        .practical-info li {
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .cta-button {
+            display: inline-block;
+            background-color: {{if .PrimaryColor}}{{.PrimaryColor}}{{else}}#6366f1{{end}};
+            color: #ffffff !important;
+            padding: 14px 32px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            text-align: center;
+        }
+        .cta-secondary {
+            display: inline-block;
+            background-color: #f3f4f6;
+            color: #374151 !important;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 500;
+            text-align: center;
+            margin-left: 10px;
+        }
+        .button-group {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .rules-section {
+            border-top: 1px solid #e5e7eb;
+            padding-top: 25px;
+            margin-top: 25px;
+        }
+        .rules-section h4 {
+            color: #6b7280;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 15px;
+        }
+        .rules-list {
+            margin: 0;
+            padding-left: 20px;
+            color: #6b7280;
+            font-size: 13px;
+        }
+        .rules-list li {
+            margin-bottom: 6px;
+        }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #9ca3af;
+            font-size: 12px;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 25px;
+        }
+        .footer a {
+            color: #6b7280;
+            text-decoration: underline;
+        }
+        .social-links {
+            margin: 15px 0;
+        }
+        .social-links a {
+            display: inline-block;
+            margin: 0 8px;
+            color: #9ca3af;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            {{if .LogoURL}}
+            <img src="{{.LogoURL}}" alt="{{.FestivalName}}" class="festival-logo">
+            {{end}}
+            <div class="success-badge">Ticket Confirmed</div>
+            <h1>You're All Set!</h1>
+            <p class="subtitle">Hi {{.UserName}}, your ticket for {{.FestivalName}} is ready.</p>
+        </div>
+
+        <div class="ticket-card">
+            <div class="ticket-header">
+                <div>
+                    <div class="ticket-label">Festival Ticket</div>
+                    <div class="festival-name">{{.FestivalName}}</div>
+                </div>
+                <div class="ticket-type-badge">{{.TicketType}}</div>
+            </div>
+
+            <div class="qr-section">
+                <div class="qr-code">
+                    {{if .QRCodeDataURI}}
+                    <img src="{{.QRCodeDataURI}}" alt="Ticket QR Code">
+                    {{else}}
+                    <img src="cid:qrcode" alt="Ticket QR Code">
+                    {{end}}
+                </div>
+                <div class="ticket-code">{{.TicketCode}}</div>
+            </div>
+
+            <div class="ticket-details">
+                <div class="ticket-detail-item">
+                    <div class="ticket-detail-label">Date</div>
+                    <div class="ticket-detail-value">{{.FestivalDate}}</div>
+                </div>
+                <div class="ticket-detail-item">
+                    <div class="ticket-detail-label">Location</div>
+                    <div class="ticket-detail-value">{{.FestivalVenue}}</div>
+                </div>
+                {{if .HolderName}}
+                <div class="ticket-detail-item">
+                    <div class="ticket-detail-label">Holder</div>
+                    <div class="ticket-detail-value">{{.HolderName}}</div>
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        <div class="important-notice">
+            <h4>Important: Save Your QR Code</h4>
+            <p>Screenshot or save this email. You'll need to show the QR code above to enter the festival. Make sure your screen brightness is set to maximum when scanning.</p>
+        </div>
+
+        <div class="info-section">
+            <h3>Purchase Summary</h3>
+            <div class="info-row">
+                <span class="info-label">Ticket Type</span>
+                <span class="info-value">{{.TicketType}}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Quantity</span>
+                <span class="info-value">{{.Quantity}}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Purchase Date</span>
+                <span class="info-value">{{.PurchaseDate}}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Order Reference</span>
+                <span class="info-value">{{.OrderReference}}</span>
+            </div>
+            <div class="info-row" style="font-weight: 600;">
+                <span class="info-label">Total Amount</span>
+                <span class="info-value">{{.TotalAmount}}</span>
+            </div>
+        </div>
+
+        <div class="practical-info">
+            <h3>Practical Information</h3>
+            <ul>
+                <li><strong>Gates Open:</strong> {{.GatesOpenTime}}</li>
+                <li><strong>Location:</strong> {{.FestivalVenue}}</li>
+                {{if .ParkingInfo}}
+                <li><strong>Parking:</strong> {{.ParkingInfo}}</li>
+                {{end}}
+                {{if .TransportInfo}}
+                <li><strong>Public Transport:</strong> {{.TransportInfo}}</li>
+                {{end}}
+                <li><strong>Valid From:</strong> {{.ValidFrom}}</li>
+                <li><strong>Valid Until:</strong> {{.ValidUntil}}</li>
+            </ul>
+        </div>
+
+        <div class="button-group">
+            <a href="{{.TicketURL}}" class="cta-button">View Your Ticket</a>
+            {{if .CalendarURL}}
+            <a href="{{.CalendarURL}}" class="cta-secondary">Add to Calendar</a>
+            {{end}}
+        </div>
+
+        {{if .Benefits}}
+        <div class="info-section">
+            <h3>Your Ticket Benefits</h3>
+            <ul style="margin: 0; padding-left: 20px; color: #374151;">
+                {{range .Benefits}}
+                <li>{{.}}</li>
+                {{end}}
+            </ul>
+        </div>
+        {{end}}
+
+        <div class="rules-section">
+            <h4>Festival Rules</h4>
+            <ul class="rules-list">
+                <li>This ticket is personal and non-transferable unless explicitly allowed</li>
+                <li>Valid ID may be required at entry</li>
+                <li>No professional cameras or recording equipment</li>
+                <li>No outside food or beverages</li>
+                <li>Follow all instructions from festival staff</li>
+                {{if .AllowsReentry}}
+                <li>Re-entry is permitted - keep your wristband on at all times</li>
+                {{else}}
+                <li>No re-entry - once you leave, your ticket becomes invalid</li>
+                {{end}}
+            </ul>
+        </div>
+
+        <div class="footer">
+            <p>Questions? Contact our support team at <a href="mailto:{{.SupportEmail}}">{{.SupportEmail}}</a></p>
+            <div class="social-links">
+                {{if .WebsiteURL}}<a href="{{.WebsiteURL}}">Website</a>{{end}}
+                {{if .FacebookURL}}<a href="{{.FacebookURL}}">Facebook</a>{{end}}
+                {{if .InstagramURL}}<a href="{{.InstagramURL}}">Instagram</a>{{end}}
+            </div>
+            <p style="margin-top: 15px;">
+                Thank you for your purchase!<br>
+                See you at {{.FestivalName}}!
+            </p>
+            <p style="margin-top: 20px; font-size: 11px;">
+                Order #{{.OrderReference}} | Ticket #{{.TicketCode}}
+            </p>
+        </div>
+    </div>
+</body>
+</html>

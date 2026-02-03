@@ -1,0 +1,22 @@
+{{- if .Values.worker.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "festivals.fullname" . }}-worker
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "festivals.worker.labels" . | nindent 4 }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+spec:
+  type: {{ .Values.worker.service.type }}
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: {{ .Values.worker.service.port }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "festivals.worker.selectorLabels" . | nindent 4 }}
+{{- end }}

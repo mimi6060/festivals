@@ -1,0 +1,30 @@
+# Dependencies
+vendor/
+
+# Build
+bin/
+tmp/
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Debug
+*.log
+
+# macOS
+.DS_Store
+
+# Test
+coverage.out
+coverage.html
+
+# Air (hot reload)
+tmp/

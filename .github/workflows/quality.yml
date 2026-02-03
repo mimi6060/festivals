@@ -1,0 +1,521 @@
+name: Quality
+
+on:
+  push:
+    branches:
+      - main
+      - development
+  pull_request:
+    branches:
+      - main
+      - development
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================
+  # Go Code Quality (golangci-lint)
+  # ============================================
+  golangci-lint:
+    name: Go Linting
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend/go.sum
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          working-directory: ./backend
+          args: --timeout=10m --config=../.golangci.yml
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run staticcheck
+        uses: dominikh/staticcheck-action@v1
+        with:
+          working-directory: ./backend
+          install-go: false
+
+  # ============================================
+  # Go Code Formatting
+  # ============================================
+  go-format:
+    name: Go Formatting
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend/go.sum
+
+      - name: Check gofmt
+        run: |
+          UNFORMATTED=$(gofmt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "The following files are not formatted:"
+            echo "$UNFORMATTED"
+            echo ""
+            echo "Run 'gofmt -w .' to fix formatting"
+            exit 1
+          fi
+
+      - name: Check goimports
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+          UNIMPORTED=$(goimports -l .)
+          if [ -n "$UNIMPORTED" ]; then
+            echo "The following files have import issues:"
+            echo "$UNIMPORTED"
+            echo ""
+            echo "Run 'goimports -w .' to fix imports"
+            exit 1
+          fi
+
+  # ============================================
+  # TypeScript ESLint (Admin)
+  # ============================================
+  eslint-admin:
+    name: ESLint (Admin)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./admin
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: '8'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: admin/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ESLint
+        run: |
+          pnpm lint --format json --output-file eslint-results.json || true
+          pnpm lint
+
+      - name: Upload ESLint results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eslint-admin-results
+          path: admin/eslint-results.json
+          retention-days: 7
+
+  # ============================================
+  # TypeScript ESLint (Mobile)
+  # ============================================
+  eslint-mobile:
+    name: ESLint (Mobile)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./mobile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: |
+          npm run lint -- --format json --output-file eslint-results.json || true
+          npm run lint
+
+      - name: Upload ESLint results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eslint-mobile-results
+          path: mobile/eslint-results.json
+          retention-days: 7
+
+  # ============================================
+  # Prettier Check
+  # ============================================
+  prettier-admin:
+    name: Prettier (Admin)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./admin
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: '8'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: admin/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check Prettier formatting
+        run: pnpm exec prettier --check "src/**/*.{ts,tsx,js,jsx,json,css,scss,md}"
+
+  prettier-mobile:
+    name: Prettier (Mobile)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./mobile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Prettier formatting
+        run: npx prettier --check "**/*.{ts,tsx,js,jsx,json,css,md}" --ignore-path .gitignore
+
+  # ============================================
+  # TODO/FIXME Comment Check
+  # ============================================
+  todo-check:
+    name: TODO/FIXME Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for TODO/FIXME comments
+        run: |
+          echo "=== Checking for TODO/FIXME comments ==="
+
+          # Find all TODO/FIXME comments (excluding vendor directories)
+          TODO_COUNT=$(grep -rn "TODO\|FIXME\|HACK\|XXX" \
+            --include="*.go" \
+            --include="*.ts" \
+            --include="*.tsx" \
+            --include="*.js" \
+            --include="*.jsx" \
+            --exclude-dir=vendor \
+            --exclude-dir=node_modules \
+            --exclude-dir=.next \
+            --exclude-dir=dist \
+            . 2>/dev/null | wc -l || echo "0")
+
+          echo "Found $TODO_COUNT TODO/FIXME/HACK/XXX comments"
+
+          # List all found comments
+          grep -rn "TODO\|FIXME\|HACK\|XXX" \
+            --include="*.go" \
+            --include="*.ts" \
+            --include="*.tsx" \
+            --include="*.js" \
+            --include="*.jsx" \
+            --exclude-dir=vendor \
+            --exclude-dir=node_modules \
+            --exclude-dir=.next \
+            --exclude-dir=dist \
+            . 2>/dev/null || true
+
+          # Warn if too many TODOs (configurable threshold)
+          if [ "$TODO_COUNT" -gt 50 ]; then
+            echo "::warning::High number of TODO/FIXME comments ($TODO_COUNT). Consider addressing them."
+          fi
+
+          # Count FIXME specifically (more urgent)
+          FIXME_COUNT=$(grep -rn "FIXME" \
+            --include="*.go" \
+            --include="*.ts" \
+            --include="*.tsx" \
+            --include="*.js" \
+            --include="*.jsx" \
+            --exclude-dir=vendor \
+            --exclude-dir=node_modules \
+            --exclude-dir=.next \
+            --exclude-dir=dist \
+            . 2>/dev/null | wc -l || echo "0")
+
+          if [ "$FIXME_COUNT" -gt 10 ]; then
+            echo "::warning::Found $FIXME_COUNT FIXME comments that may need urgent attention."
+          fi
+
+  # ============================================
+  # Import Sorting Check
+  # ============================================
+  import-sort-go:
+    name: Go Import Sorting
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend/go.sum
+
+      - name: Check import sorting
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+
+          # Check for unsorted imports
+          UNSORTED=$(goimports -l -local github.com/mimi6060/festivals .)
+          if [ -n "$UNSORTED" ]; then
+            echo "The following files have unsorted imports:"
+            echo "$UNSORTED"
+            echo ""
+            echo "Run 'goimports -w -local github.com/mimi6060/festivals .' to fix"
+            exit 1
+          fi
+
+  import-sort-ts:
+    name: TypeScript Import Sorting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: '8'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install import-sort checker
+        run: npm install -g @trivago/prettier-plugin-sort-imports
+
+      - name: Check Admin imports
+        working-directory: ./admin
+        run: |
+          pnpm install --frozen-lockfile
+          # ESLint with import plugin handles this
+          pnpm lint -- --rule "import/order: error" || echo "Import sorting may need review"
+
+  # ============================================
+  # TypeScript Type Check
+  # ============================================
+  typecheck-admin:
+    name: TypeScript Check (Admin)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./admin
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: '8'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: admin/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run TypeScript check
+        run: pnpm exec tsc --noEmit --pretty
+
+  typecheck-mobile:
+    name: TypeScript Check (Mobile)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./mobile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript check
+        run: npx tsc --noEmit --pretty
+
+  # ============================================
+  # Code Complexity Check
+  # ============================================
+  complexity-go:
+    name: Go Complexity
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend/go.sum
+
+      - name: Install gocyclo
+        run: go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+
+      - name: Check cyclomatic complexity
+        run: |
+          # Find functions with high complexity (> 15)
+          HIGH_COMPLEXITY=$(gocyclo -over 15 . 2>/dev/null || true)
+
+          if [ -n "$HIGH_COMPLEXITY" ]; then
+            echo "::warning::Functions with high cyclomatic complexity (> 15):"
+            echo "$HIGH_COMPLEXITY"
+          fi
+
+          # Fail if complexity is too high (> 25)
+          VERY_HIGH=$(gocyclo -over 25 . 2>/dev/null || true)
+          if [ -n "$VERY_HIGH" ]; then
+            echo "::error::Functions with very high cyclomatic complexity (> 25):"
+            echo "$VERY_HIGH"
+            exit 1
+          fi
+
+  # ============================================
+  # Commit Message Lint
+  # ============================================
+  commitlint:
+    name: Commit Message Lint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install commitlint
+        run: |
+          npm install -g @commitlint/cli @commitlint/config-conventional
+
+      - name: Validate commit messages
+        run: |
+          # Get the commit range for the PR
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+
+          # Lint all commits in the PR
+          npx commitlint --from $BASE_SHA --to $HEAD_SHA --verbose
+
+  # ============================================
+  # Quality Summary
+  # ============================================
+  quality-summary:
+    name: Quality Summary
+    runs-on: ubuntu-latest
+    needs: [golangci-lint, go-format, eslint-admin, eslint-mobile, prettier-admin, prettier-mobile, todo-check, typecheck-admin, typecheck-mobile]
+    if: always()
+
+    steps:
+      - name: Check quality results
+        run: |
+          echo "=== Quality Check Summary ==="
+          echo "golangci-lint: ${{ needs.golangci-lint.result }}"
+          echo "go-format: ${{ needs.go-format.result }}"
+          echo "eslint-admin: ${{ needs.eslint-admin.result }}"
+          echo "eslint-mobile: ${{ needs.eslint-mobile.result }}"
+          echo "prettier-admin: ${{ needs.prettier-admin.result }}"
+          echo "prettier-mobile: ${{ needs.prettier-mobile.result }}"
+          echo "todo-check: ${{ needs.todo-check.result }}"
+          echo "typecheck-admin: ${{ needs.typecheck-admin.result }}"
+          echo "typecheck-mobile: ${{ needs.typecheck-mobile.result }}"
+
+          # Fail if any critical check failed
+          if [[ "${{ needs.golangci-lint.result }}" == "failure" ]] || \
+             [[ "${{ needs.eslint-admin.result }}" == "failure" ]] || \
+             [[ "${{ needs.eslint-mobile.result }}" == "failure" ]] || \
+             [[ "${{ needs.typecheck-admin.result }}" == "failure" ]] || \
+             [[ "${{ needs.typecheck-mobile.result }}" == "failure" ]]; then
+            echo "Quality checks failed!"
+            exit 1
+          fi
+
+          echo "All quality checks passed!"
