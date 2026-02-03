@@ -19,12 +19,14 @@ import {
   ShieldCheck,
   User as UserIcon,
   LogIn,
+  AlertTriangle,
 } from 'lucide-react'
 import { cn, formatDateTime } from '@/lib/utils'
 import { usersApi, User, UserRole, UserStatus, UserListParams } from '@/lib/api/users'
 import { Badge } from '@/components/ui/Badge'
 import { UserCard } from '@/components/users/UserCard'
 import { impersonationManager } from '@/lib/impersonation'
+import { useAuth } from '@/hooks/useAuth'
 
 const roleConfig: Record<UserRole, { label: string; className: string; icon: typeof Shield }> = {
   ADMIN: {
@@ -71,15 +73,21 @@ export default function UsersPage() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [impersonating, setImpersonating] = useState<string | null>(null)
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false) // TODO: Get from auth context
   const perPage = 20
 
-  // Check if current user is super admin
-  useEffect(() => {
-    // TODO: Replace with actual auth check
-    // For now, enable for demo purposes
-    setIsSuperAdmin(true)
-  }, [])
+  // Get auth state from useAuth hook
+  const {
+    user: currentUser,
+    isAdmin,
+    canImpersonate,
+    hasPermission,
+    isLoading: authLoading
+  } = useAuth()
+
+  // Check if current user can manage users (admin or has permission)
+  const canManageUsers = hasPermission('users:write')
+  const canBanUsers = hasPermission('users:ban')
+  const canDeleteUsers = hasPermission('users:delete')
 
   useEffect(() => {
     loadUsers()
@@ -223,9 +231,9 @@ export default function UsersPage() {
     }
   }
 
-  // Check if a user can be impersonated
-  const canImpersonate = (user: User) => {
-    return isSuperAdmin && !user.roles.includes('ADMIN') && user.status === 'ACTIVE'
+  // Check if a user can be impersonated by the current user
+  const canImpersonateUser = (user: User) => {
+    return canImpersonate() && !user.roles.includes('ADMIN') && user.status === 'ACTIVE'
   }
 
   const filteredUsers = users.filter((user) => {
@@ -551,7 +559,7 @@ export default function UsersPage() {
                               <Shield className="h-4 w-4" />
                               Gerer les roles
                             </Link>
-                            {canImpersonate(user) && (
+                            {canImpersonateUser(user) && (
                               <button
                                 onClick={() => handleImpersonate(user)}
                                 disabled={impersonating === user.id}
@@ -570,22 +578,24 @@ export default function UsersPage() {
                                 )}
                               </button>
                             )}
-                            {user.status === 'BANNED' ? (
-                              <button
-                                onClick={() => handleUnban(user.id)}
-                                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-green-600 hover:bg-gray-100"
-                              >
-                                <UserCheck className="h-4 w-4" />
-                                Debannir
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleBan(user.id)}
-                                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
-                              >
-                                <Ban className="h-4 w-4" />
-                                Bannir
-                              </button>
+                            {canBanUsers && (
+                              user.status === 'BANNED' ? (
+                                <button
+                                  onClick={() => handleUnban(user.id)}
+                                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-green-600 hover:bg-gray-100"
+                                >
+                                  <UserCheck className="h-4 w-4" />
+                                  Debannir
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleBan(user.id)}
+                                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
+                                >
+                                  <Ban className="h-4 w-4" />
+                                  Bannir
+                                </button>
+                              )
                             )}
                           </div>
                         </div>

@@ -134,6 +134,23 @@ func (s *Service) SendPasswordResetEmail(ctx context.Context, userID *uuid.UUID,
 	return s.sendEmail(ctx, userID, toEmail, EmailTemplatePasswordReset, data, meta)
 }
 
+// SendSecurityAlertEmail sends a security alert email
+func (s *Service) SendSecurityAlertEmail(ctx context.Context, userID *uuid.UUID, toEmail string, data SecurityAlertEmailData) error {
+	// Set defaults if not provided
+	if data.SecurityURL == "" {
+		data.SecurityURL = fmt.Sprintf("%s/account/security", s.baseURL)
+	}
+	if data.SupportEmail == "" {
+		data.SupportEmail = s.supportEmail
+	}
+
+	meta := &EmailLogMeta{
+		IPAddress: data.IPAddress,
+	}
+
+	return s.sendEmail(ctx, userID, toEmail, EmailTemplateSecurityAlert, data, meta)
+}
+
 // GetUserPreferences retrieves or creates default notification preferences for a user
 func (s *Service) GetUserPreferences(ctx context.Context, userID uuid.UUID) (*NotificationPreferences, error) {
 	prefs, err := s.repo.GetPreferencesByUserID(ctx, userID)
@@ -241,7 +258,7 @@ func (s *Service) ShouldSendEmail(ctx context.Context, userID uuid.UUID, templat
 
 	// Check template-specific preferences
 	switch template {
-	case EmailTemplateWelcome, EmailTemplatePasswordReset:
+	case EmailTemplateWelcome, EmailTemplatePasswordReset, EmailTemplateSecurityAlert:
 		// Security/account emails are always sent if email is enabled
 		return prefs.SecurityAlerts, nil
 	case EmailTemplateTicketPurchased, EmailTemplateTicketTransferred:
@@ -321,6 +338,21 @@ func (s *Service) SendTestEmail(ctx context.Context, template EmailTemplate, toE
 			ExpiresIn: "1 hour",
 			IPAddress: "127.0.0.1",
 			UserAgent: "Test Browser",
+		}
+	case EmailTemplateSecurityAlert:
+		data = SecurityAlertEmailData{
+			UserName:       "Test User",
+			AlertType:      "New Login Detected",
+			AlertTitle:     "New Login from Unknown Device",
+			AlertMessage:   "A new sign-in to your account was detected from an unrecognized device.",
+			ActionRequired: "If this wasn't you, please change your password immediately and review your account activity.",
+			Timestamp:      time.Now().Format("January 2, 2006 at 15:04 MST"),
+			IPAddress:      "192.168.1.100",
+			Location:       "Berlin, Germany",
+			DeviceInfo:     "Chrome on Windows",
+			SecurityURL:    fmt.Sprintf("%s/account/security", s.baseURL),
+			SupportEmail:   s.supportEmail,
+			IsUrgent:       false,
 		}
 	default:
 		return fmt.Errorf("unknown template: %s", template)
@@ -455,6 +487,15 @@ func (s *Service) generatePlainText(template EmailTemplate, data interface{}) st
 		if d, ok := data.(PasswordResetEmailData); ok {
 			return fmt.Sprintf("Hi %s,\n\nA password reset was requested for your account.\n\nReset your password: %s\n\nThis link expires in %s.\n\nIf you didn't request this, please ignore this email.",
 				d.UserName, d.ResetURL, d.ExpiresIn)
+		}
+	case EmailTemplateSecurityAlert:
+		if d, ok := data.(SecurityAlertEmailData); ok {
+			urgency := ""
+			if d.IsUrgent {
+				urgency = "[URGENT] "
+			}
+			return fmt.Sprintf("%sHi %s,\n\nSecurity Alert: %s\n\n%s\n\nTime: %s\nIP Address: %s\nLocation: %s\nDevice: %s\n\n%s\n\nReview your security settings: %s\n\nIf you need help, contact: %s",
+				urgency, d.UserName, d.AlertTitle, d.AlertMessage, d.Timestamp, d.IPAddress, d.Location, d.DeviceInfo, d.ActionRequired, d.SecurityURL, d.SupportEmail)
 		}
 	}
 

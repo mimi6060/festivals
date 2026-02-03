@@ -15,6 +15,7 @@ import {
   Menu,
   X,
 } from 'lucide-react'
+import { useAuth } from '@/hooks/useAuth'
 
 const navigation = [
   { name: 'Apercu', href: '/account', icon: User, exact: true },
@@ -31,30 +32,29 @@ export default function AccountLayout({ children }: AccountLayoutProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
 
-  // Check authentication on mount
+  // Use the auth hook for authentication state
+  const { user, isLoading, isAuthenticated, isDevMode, logout, loginUrl } = useAuth()
+
+  // Redirect to login if not authenticated
   useEffect(() => {
-    // TODO: Replace with actual auth check
-    const checkAuth = async () => {
-      try {
-        // Simulate auth check - replace with actual API call
-        const token = document.cookie.includes('auth_token') || localStorage.getItem('auth_token')
-        if (!token) {
-          // Redirect to login with return URL
-          router.push(`/login?redirect=${encodeURIComponent(pathname)}`)
-          return
-        }
-        setIsAuthenticated(true)
-      } catch {
-        router.push(`/login?redirect=${encodeURIComponent(pathname)}`)
-      }
+    if (!isLoading && !isAuthenticated) {
+      const returnUrl = encodeURIComponent(pathname)
+      router.push(`${loginUrl}?returnTo=${returnUrl}`)
     }
-    checkAuth()
-  }, [pathname, router])
+  }, [isLoading, isAuthenticated, pathname, router, loginUrl])
 
   // Show loading state while checking auth
-  if (isAuthenticated === null) {
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+      </div>
+    )
+  }
+
+  // If not authenticated, show loading (will redirect)
+  if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
@@ -63,10 +63,12 @@ export default function AccountLayout({ children }: AccountLayoutProps) {
   }
 
   const handleLogout = async () => {
-    // TODO: Implement logout logic
+    // Clear any local storage tokens
     localStorage.removeItem('auth_token')
+    // Clear any cookies
     document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
-    router.push('/login')
+    // Use the logout function from useAuth (handles both Auth0 and dev mode)
+    logout()
   }
 
   return (

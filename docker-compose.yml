@@ -103,7 +103,7 @@ services:
   admin:
     build:
       context: ./admin
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     ports:
       - "${ADMIN_PORT:-3000}:3000"
     environment:

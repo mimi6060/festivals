@@ -1,31 +1,40 @@
 'use client'
 
-import { useState } from 'react'
+import { useUser } from '@auth0/nextjs-auth0/client'
 import { useRouter } from 'next/navigation'
-import { useAuthStore } from '@/stores/authStore'
+import { useEffect, useState } from 'react'
 
 export default function LoginPage() {
+  const { user, isLoading: authLoading } = useUser()
   const router = useRouter()
-  const setUser = useAuthStore((state) => state.setUser)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isAuth0Configured, setIsAuth0Configured] = useState(true)
 
-  const handleLogin = async () => {
-    setIsLoading(true)
-    try {
-      // TODO: Replace with Auth0 login
-      // For now, mock login
-      setUser({
-        id: '1',
-        email: 'admin@festivals.app',
-        name: 'Admin',
-        roles: ['SUPER_ADMIN'],
+  useEffect(() => {
+    // Check if Auth0 is configured by trying to access user endpoint
+    fetch('/api/auth/me')
+      .then((res) => {
+        if (res.status === 500) {
+          setIsAuth0Configured(false)
+        }
       })
-      router.push('/festival/config')
-    } catch (error) {
-      console.error('Login failed:', error)
-    } finally {
-      setIsLoading(false)
+      .catch(() => setIsAuth0Configured(false))
+  }, [])
+
+  useEffect(() => {
+    if (user) {
+      router.push('/')
     }
+  }, [user, router])
+
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto"></div>
+          <p className="mt-4 text-gray-600">Chargement...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -36,13 +45,22 @@ export default function LoginPage() {
           <p className="mt-2 text-gray-600">Back-office de gestion</p>
         </div>
 
-        <button
-          onClick={handleLogin}
-          disabled={isLoading}
-          className="w-full rounded-lg bg-primary px-4 py-3 text-white hover:bg-primary/90 disabled:opacity-50"
-        >
-          {isLoading ? 'Connexion...' : 'Se connecter'}
-        </button>
+        {!isAuth0Configured ? (
+          <div className="rounded-lg bg-yellow-50 border border-yellow-200 p-4">
+            <p className="text-yellow-800 text-sm font-medium">Auth0 non configuré</p>
+            <p className="text-yellow-700 text-xs mt-1">
+              Configurez les variables AUTH0_* dans .env pour activer l&apos;authentification.
+              Consultez docs/setup/AUTH0.md pour plus d&apos;informations.
+            </p>
+          </div>
+        ) : (
+          <a
+            href="/api/auth/login"
+            className="block w-full rounded-lg bg-primary px-4 py-3 text-white text-center hover:bg-primary/90"
+          >
+            Se connecter avec Auth0
+          </a>
+        )}
 
         <p className="text-center text-sm text-gray-500">
           Connexion sécurisée via Auth0

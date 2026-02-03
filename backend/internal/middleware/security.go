@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -452,55 +451,8 @@ func sanitizeAndValidateInput(c *gin.Context, cfg SecurityConfig) bool {
 	return true
 }
 
-// SQL injection patterns
-var sqlInjectionPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|CREATE|TRUNCATE|EXEC|EXECUTE)\b\s+)`),
-	regexp.MustCompile(`(?i)(\b(AND|OR)\b\s+\d+\s*=\s*\d+)`),
-	regexp.MustCompile(`(?i)(--|\#|\/\*|\*\/)`),
-	regexp.MustCompile(`(?i)('|")\s*(OR|AND)\s*('|")\s*=\s*('|")`),
-	regexp.MustCompile(`(?i)(WAITFOR\s+DELAY|BENCHMARK\s*\(|SLEEP\s*\()`),
-	regexp.MustCompile(`(?i)(;\s*(SELECT|INSERT|UPDATE|DELETE|DROP|UNION))`),
-	regexp.MustCompile(`(?i)(CHAR\s*\(|CONCAT\s*\(|CHR\s*\()`),
-}
-
-// XSS patterns
-var xssPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)<\s*script[^>]*>`),
-	regexp.MustCompile(`(?i)<\s*\/\s*script\s*>`),
-	regexp.MustCompile(`(?i)javascript\s*:`),
-	regexp.MustCompile(`(?i)on(load|error|click|mouseover|submit|focus|blur|change|input|keyup|keydown|mouseenter|mouseleave)\s*=`),
-	regexp.MustCompile(`(?i)<\s*img[^>]+on\w+\s*=`),
-	regexp.MustCompile(`(?i)<\s*svg[^>]*on\w+\s*=`),
-	regexp.MustCompile(`(?i)<\s*iframe`),
-	regexp.MustCompile(`(?i)<\s*object`),
-	regexp.MustCompile(`(?i)<\s*embed`),
-	regexp.MustCompile(`(?i)expression\s*\(`),
-	regexp.MustCompile(`(?i)data\s*:\s*text\/html`),
-	regexp.MustCompile(`(?i)vbscript\s*:`),
-}
-
-// Path traversal patterns
-var pathTraversalPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`\.\.\/`),
-	regexp.MustCompile(`\.\.\\`),
-	regexp.MustCompile(`%2e%2e%2f`),
-	regexp.MustCompile(`%2e%2e\/`),
-	regexp.MustCompile(`\.\.%2f`),
-	regexp.MustCompile(`%2e%2e%5c`),
-	regexp.MustCompile(`(?i)(etc\/passwd|etc\/shadow|windows\/system32)`),
-}
-
-// Command injection patterns
-var commandInjectionPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`[;&|` + "`" + `$]`),
-	regexp.MustCompile(`\$\([^)]+\)`),
-	regexp.MustCompile(`\$\{[^}]+\}`),
-	regexp.MustCompile("`.+`"),
-	regexp.MustCompile(`\|\s*\w+`),
-	regexp.MustCompile(`(?i)(;|\||&&)\s*(cat|ls|pwd|whoami|id|uname|wget|curl|nc|bash|sh|python|perl|ruby|php)`),
-}
-
 // detectThreat checks input for various attack patterns
+// Note: Pattern variables (sqlInjectionPatterns, xssPatterns, etc.) are defined in injection.go
 func detectThreat(input string, cfg SecurityConfig) (string, bool) {
 	if cfg.BlockSQLInjection {
 		for _, pattern := range sqlInjectionPatterns {

@@ -138,7 +138,7 @@ func (e *Encryptor) Encrypt(plaintext []byte) (string, error) {
 	// Generate nonce
 	nonce := make([]byte, e.primaryCipher.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("failed to generate nonce: %w", err)
+		return "", fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
 	// Encrypt

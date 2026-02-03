@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,15 +20,19 @@ type PostalClient struct {
 	httpClient *http.Client
 	fromEmail  string
 	fromName   string
+	maxRetries int
+	retryDelay time.Duration
 }
 
 // PostalConfig holds configuration for the Postal client
 type PostalConfig struct {
-	BaseURL   string
-	APIKey    string
-	FromEmail string
-	FromName  string
-	Timeout   time.Duration
+	BaseURL    string
+	APIKey     string
+	FromEmail  string
+	FromName   string
+	Timeout    time.Duration
+	MaxRetries int
+	RetryDelay time.Duration
 }
 
 // NewPostalClient creates a new Postal email client
@@ -37,11 +42,23 @@ func NewPostalClient(cfg PostalConfig) *PostalClient {
 		timeout = 30 * time.Second
 	}
 
+	maxRetries := cfg.MaxRetries
+	if maxRetries == 0 {
+		maxRetries = 3
+	}
+
+	retryDelay := cfg.RetryDelay
+	if retryDelay == 0 {
+		retryDelay = 1 * time.Second
+	}
+
 	return &PostalClient{
-		baseURL:   cfg.BaseURL,
-		apiKey:    cfg.APIKey,
-		fromEmail: cfg.FromEmail,
-		fromName:  cfg.FromName,
+		baseURL:    cfg.BaseURL,
+		apiKey:     cfg.APIKey,
+		fromEmail:  cfg.FromEmail,
+		fromName:   cfg.FromName,
+		maxRetries: maxRetries,
+		retryDelay: retryDelay,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -182,13 +199,61 @@ func (c *PostalClient) SendTemplatedEmail(ctx context.Context, to, templateID st
 	}, fmt.Errorf("SendTemplatedEmail should be called through notification service")
 }
 
-// sendRequest makes the actual HTTP request to Postal
+// sendRequest makes the actual HTTP request to Postal with retry logic
 func (c *PostalClient) sendRequest(ctx context.Context, req postalSendRequest) (*SendEmailResult, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	var lastErr error
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff with jitter
+			delay := c.retryDelay * time.Duration(1<<uint(attempt-1))
+			log.Warn().
+				Int("attempt", attempt).
+				Dur("delay", delay).
+				Strs("to", req.To).
+				Msg("Retrying email send after delay")
+
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		result, err := c.doSendRequest(ctx, body, req)
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+
+		// Don't retry on context cancellation or non-retryable errors
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		// Check if error is retryable (network errors, 5xx responses)
+		if !isRetryableError(err) {
+			log.Error().Err(err).Msg("Non-retryable email error, not retrying")
+			return result, err
+		}
+
+		log.Warn().
+			Err(err).
+			Int("attempt", attempt+1).
+			Int("maxRetries", c.maxRetries).
+			Msg("Email send attempt failed")
+	}
+
+	return nil, fmt.Errorf("failed to send email after %d retries: %w", c.maxRetries, lastErr)
+}
+
+// doSendRequest performs a single HTTP request to Postal
+func (c *PostalClient) doSendRequest(ctx context.Context, body []byte, req postalSendRequest) (*SendEmailResult, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/send/message", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -200,13 +265,22 @@ func (c *PostalClient) sendRequest(ctx context.Context, req postalSendRequest) (
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to send email request")
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, &retryableError{err: fmt.Errorf("failed to send request: %w", err)}
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Check for server errors (5xx) which are retryable
+	if resp.StatusCode >= 500 {
+		log.Error().
+			Int("statusCode", resp.StatusCode).
+			Str("response", string(respBody)).
+			Msg("Postal server error")
+		return nil, &retryableError{err: fmt.Errorf("postal server error: status %d", resp.StatusCode)}
 	}
 
 	var postalResp postalResponse
@@ -236,6 +310,28 @@ func (c *PostalClient) sendRequest(ctx context.Context, req postalSendRequest) (
 		MessageID: postalResp.Data.MessageID,
 		Success:   true,
 	}, nil
+}
+
+// retryableError wraps errors that should be retried
+type retryableError struct {
+	err error
+}
+
+func (e *retryableError) Error() string {
+	return e.err.Error()
+}
+
+func (e *retryableError) Unwrap() error {
+	return e.err
+}
+
+// isRetryableError checks if an error should be retried
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var retryable *retryableError
+	return errors.As(err, &retryable)
 }
 
 // HealthCheck verifies the connection to Postal

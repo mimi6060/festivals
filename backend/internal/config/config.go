@@ -34,9 +34,16 @@ type Config struct {
 	MinioSecretKey string
 	MinioBucket    string
 
-	// Mail
+	// Mail - Postal (Primary)
 	PostalURL    string
 	PostalAPIKey string
+
+	// Mail - SendGrid (Fallback)
+	SendGridAPIKey string
+
+	// Mail - Common
+	EmailFromAddress string
+	EmailFromName    string
 
 	// Twilio SMS
 	TwilioAccountSID string
@@ -48,6 +55,12 @@ type Config struct {
 	OpenAIAPIKey     string
 	OpenAIModel      string
 	OpenAIEmbedModel string
+
+	// Security Alert Integrations
+	SlackWebhookURL     string
+	SecurityAlertEmails []string
+	AlertWebhookURLs    []string
+	AlertWebhookSecret  string
 }
 
 func Load() (*Config, error) {
@@ -81,9 +94,16 @@ func Load() (*Config, error) {
 		MinioSecretKey: getEnv("MINIO_SECRET_KEY", "minio123"),
 		MinioBucket:    getEnv("MINIO_BUCKET", "festivals"),
 
-		// Mail
+		// Mail - Postal (Primary)
 		PostalURL:    getEnv("POSTAL_URL", "http://localhost:5000"),
 		PostalAPIKey: getEnv("POSTAL_API_KEY", ""),
+
+		// Mail - SendGrid (Fallback)
+		SendGridAPIKey: getEnv("SENDGRID_API_KEY", ""),
+
+		// Mail - Common
+		EmailFromAddress: getEnv("EMAIL_FROM_ADDRESS", "noreply@festivals.app"),
+		EmailFromName:    getEnv("EMAIL_FROM_NAME", "Festivals"),
 
 		// Twilio SMS
 		TwilioAccountSID: getEnv("TWILIO_ACCOUNT_SID", ""),
@@ -95,6 +115,12 @@ func Load() (*Config, error) {
 		OpenAIAPIKey:     getEnv("OPENAI_API_KEY", ""),
 		OpenAIModel:      getEnv("OPENAI_MODEL", "gpt-4o"),
 		OpenAIEmbedModel: getEnv("OPENAI_EMBED_MODEL", "text-embedding-3-small"),
+
+		// Security Alert Integrations
+		SlackWebhookURL:     getEnv("SLACK_WEBHOOK_URL", ""),
+		SecurityAlertEmails: getEnvStringSlice("SECURITY_ALERT_EMAILS", nil),
+		AlertWebhookURLs:    getEnvStringSlice("ALERT_WEBHOOK_URLS", nil),
+		AlertWebhookSecret:  getEnv("ALERT_WEBHOOK_SECRET", ""),
 	}, nil
 }
 
@@ -121,4 +147,43 @@ func getEnvBool(key string, defaultValue bool) bool {
 		}
 	}
 	return defaultValue
+}
+
+func getEnvStringSlice(key string, defaultValue []string) []string {
+	if value := os.Getenv(key); value != "" {
+		var result []string
+		for _, item := range splitByComma(value) {
+			trimmed := trimWhitespace(item)
+			if trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		return result
+	}
+	return defaultValue
+}
+
+func splitByComma(s string) []string {
+	var result []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == ',' {
+			result = append(result, s[start:i])
+			start = i + 1
+		}
+	}
+	result = append(result, s[start:])
+	return result
+}
+
+func trimWhitespace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
+		end--
+	}
+	return s[start:end]
 }

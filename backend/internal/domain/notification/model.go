@@ -16,6 +16,7 @@ const (
 	EmailTemplateTopUpConfirmed    EmailTemplate = "TOP_UP_CONFIRMED"
 	EmailTemplateRefundProcessed   EmailTemplate = "REFUND_PROCESSED"
 	EmailTemplatePasswordReset     EmailTemplate = "PASSWORD_RESET"
+	EmailTemplateSecurityAlert     EmailTemplate = "SECURITY_ALERT"
 )
 
 // IsValid checks if the template is a valid EmailTemplate
@@ -26,7 +27,8 @@ func (t EmailTemplate) IsValid() bool {
 		EmailTemplateTicketTransferred,
 		EmailTemplateTopUpConfirmed,
 		EmailTemplateRefundProcessed,
-		EmailTemplatePasswordReset:
+		EmailTemplatePasswordReset,
+		EmailTemplateSecurityAlert:
 		return true
 	}
 	return false
@@ -46,6 +48,7 @@ func (t EmailTemplate) GetSubject() string {
 		EmailTemplateTopUpConfirmed:    "Wallet Top-Up Confirmation",
 		EmailTemplateRefundProcessed:   "Refund Processed",
 		EmailTemplatePasswordReset:     "Password Reset Request",
+		EmailTemplateSecurityAlert:     "Security Alert - Action Required",
 	}
 	if subject, ok := subjects[t]; ok {
 		return subject
@@ -62,6 +65,7 @@ func (t EmailTemplate) GetTemplatePath() string {
 		EmailTemplateTopUpConfirmed:    "topup_confirmation.html",
 		EmailTemplateRefundProcessed:   "refund_processed.html",
 		EmailTemplatePasswordReset:     "password_reset.html",
+		EmailTemplateSecurityAlert:     "security_alert.html",
 	}
 	if path, ok := paths[t]; ok {
 		return path
@@ -293,4 +297,20 @@ type PasswordResetEmailData struct {
 	ExpiresIn  string
 	IPAddress  string
 	UserAgent  string
+}
+
+// SecurityAlertEmailData contains data for the security alert email template
+type SecurityAlertEmailData struct {
+	UserName        string
+	AlertType       string // e.g., "New Login", "Password Changed", "Suspicious Activity"
+	AlertTitle      string
+	AlertMessage    string
+	ActionRequired  string // What the user should do
+	Timestamp       string
+	IPAddress       string
+	Location        string // Geolocation if available
+	DeviceInfo      string
+	SecurityURL     string // Link to security settings
+	SupportEmail    string
+	IsUrgent        bool
 }
