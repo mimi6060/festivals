@@ -190,3 +190,112 @@ func PaymentRequired(c *gin.Context, message string) {
 func Accepted(c *gin.Context, data interface{}) {
 	c.JSON(http.StatusAccepted, Response{Data: data})
 }
+
+// ============================================================================
+// Standardized Error Handling Helpers
+// ============================================================================
+
+// ErrorCode represents a standardized error code
+type ErrorCode string
+
+const (
+	ErrCodeValidation       ErrorCode = "VALIDATION_ERROR"
+	ErrCodeNotFound         ErrorCode = "NOT_FOUND"
+	ErrCodeUnauthorized     ErrorCode = "UNAUTHORIZED"
+	ErrCodeForbidden        ErrorCode = "FORBIDDEN"
+	ErrCodeConflict         ErrorCode = "CONFLICT"
+	ErrCodeBadRequest       ErrorCode = "BAD_REQUEST"
+	ErrCodeInternalError    ErrorCode = "INTERNAL_ERROR"
+	ErrCodeServiceUnavail   ErrorCode = "SERVICE_UNAVAILABLE"
+	ErrCodeRateLimited      ErrorCode = "RATE_LIMITED"
+	ErrCodePaymentRequired  ErrorCode = "PAYMENT_REQUIRED"
+	ErrCodeResourceGone     ErrorCode = "RESOURCE_GONE"
+	ErrCodeInvalidID        ErrorCode = "INVALID_ID"
+	ErrCodeInsufficientBal  ErrorCode = "INSUFFICIENT_BALANCE"
+	ErrCodeDuplicate        ErrorCode = "DUPLICATE"
+)
+
+// StandardError provides a consistent error format for API responses
+type StandardError struct {
+	HTTPStatus int
+	Code       ErrorCode
+	Message    string
+	Details    interface{}
+}
+
+// Error implements the error interface
+func (e StandardError) Error() string {
+	return e.Message
+}
+
+// NewStandardError creates a new standardized error
+func NewStandardError(status int, code ErrorCode, message string, details interface{}) *StandardError {
+	return &StandardError{
+		HTTPStatus: status,
+		Code:       code,
+		Message:    message,
+		Details:    details,
+	}
+}
+
+// SendError sends a standardized error response
+func SendError(c *gin.Context, err *StandardError) {
+	if err.HTTPStatus >= 500 {
+		// Log internal errors
+		requestID := c.GetString("request_id")
+		if requestID == "" {
+			requestID = c.GetHeader("X-Request-ID")
+		}
+		log.Error().
+			Str("request_id", requestID).
+			Str("path", c.Request.URL.Path).
+			Str("method", c.Request.Method).
+			Str("error_code", string(err.Code)).
+			Msg(err.Message)
+
+		// Don't expose internal error details to clients
+		c.JSON(err.HTTPStatus, ErrorResponse{
+			Error: ErrorDetail{
+				Code:    string(err.Code),
+				Message: "An unexpected error occurred. Please try again later.",
+			},
+		})
+		return
+	}
+
+	c.JSON(err.HTTPStatus, ErrorResponse{
+		Error: ErrorDetail{
+			Code:    string(err.Code),
+			Message: err.Message,
+			Details: err.Details,
+		},
+	})
+}
+
+// HandleError is a helper that maps common domain errors to HTTP responses
+// It provides a consistent way to handle errors across all handlers
+func HandleError(c *gin.Context, err error, resourceName string) {
+	if err == nil {
+		return
+	}
+
+	errMsg := err.Error()
+
+	// Map common error patterns to standardized responses
+	switch {
+	case errMsg == "record not found" || errMsg == "not found":
+		NotFound(c, resourceName+" not found")
+	case errMsg == "unauthorized" || errMsg == "invalid credentials":
+		Unauthorized(c, "Authentication required")
+	case errMsg == "forbidden" || errMsg == "access denied":
+		Forbidden(c, "Access denied")
+	case errMsg == "already exists" || errMsg == "duplicate":
+		Conflict(c, "DUPLICATE", resourceName+" already exists")
+	case errMsg == "insufficient balance":
+		BadRequest(c, "INSUFFICIENT_BALANCE", "Insufficient balance", nil)
+	case errMsg == "validation error" || errMsg == "invalid input":
+		BadRequest(c, "VALIDATION_ERROR", errMsg, nil)
+	default:
+		InternalError(c, errMsg)
+	}
+}

@@ -11,7 +11,7 @@ import (
 
 func TestNewGenerator(t *testing.T) {
 	cfg := Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 		QRSize:    256,
 	}
 
@@ -23,7 +23,7 @@ func TestNewGenerator(t *testing.T) {
 
 func TestNewGenerator_DefaultSize(t *testing.T) {
 	cfg := Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 	}
 
 	gen := NewGenerator(cfg)
@@ -33,7 +33,7 @@ func TestNewGenerator_DefaultSize(t *testing.T) {
 
 func TestGenerateTicketQR(t *testing.T) {
 	gen := NewGenerator(Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 		QRSize:    128,
 	})
 
@@ -58,7 +58,7 @@ func TestGenerateTicketQR(t *testing.T) {
 
 func TestGenerateQRDataOnly(t *testing.T) {
 	gen := NewGenerator(Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 	})
 
 	ticketID := uuid.New()
@@ -75,7 +75,7 @@ func TestGenerateQRDataOnly(t *testing.T) {
 
 func TestVerifyAndDecodePayload(t *testing.T) {
 	gen := NewGenerator(Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 	})
 
 	ticketID := uuid.New()
@@ -127,7 +127,7 @@ func TestVerifyAndDecodePayload_InvalidSignature(t *testing.T) {
 
 func TestVerifyAndDecodePayload_Expired(t *testing.T) {
 	gen := NewGenerator(Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 	})
 
 	ticketID := uuid.New()
@@ -171,7 +171,7 @@ func TestGenerateTicketQRWithFestivalKey(t *testing.T) {
 
 func TestGetPayloadFromQRData(t *testing.T) {
 	gen := NewGenerator(Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 	})
 
 	ticketID := uuid.New()
@@ -193,7 +193,7 @@ func TestGetPayloadFromQRData(t *testing.T) {
 
 func TestGenerateQRFromData(t *testing.T) {
 	gen := NewGenerator(Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 		QRSize:    128,
 	})
 
@@ -218,7 +218,7 @@ func TestGenerateQRFromData(t *testing.T) {
 
 func TestVerifyAndDecodePayload_InvalidBase64(t *testing.T) {
 	gen := NewGenerator(Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 	})
 
 	payload, err := gen.VerifyAndDecodePayload("not-valid-base64!!!")
@@ -229,7 +229,7 @@ func TestVerifyAndDecodePayload_InvalidBase64(t *testing.T) {
 
 func TestVerifyAndDecodePayload_InvalidJSON(t *testing.T) {
 	gen := NewGenerator(Config{
-		SecretKey: "test-secret-key",
+		SecretKey: "TEST_ONLY_not_for_production_use_32chars_min",
 	})
 
 	// Valid base64 but invalid JSON

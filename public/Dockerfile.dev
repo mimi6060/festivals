@@ -1,3 +1,4 @@
+# Development Dockerfile for Next.js Public Site
 FROM node:20-alpine
 
 # Create non-root user for development
@@ -7,13 +8,19 @@ RUN addgroup -g 1001 -S nodejs && \
 WORKDIR /app
 
 # Copy package files
-COPY --chown=nextjs:nodejs package.json package-lock.json* ./
+COPY package.json package-lock.json* ./
 
 # Install dependencies
 RUN npm install
 
+# Create .next directory with proper permissions
+RUN mkdir -p .next && chown -R nextjs:nodejs .
+
 # Copy source code
 COPY --chown=nextjs:nodejs . .
+
+# Ensure all files are owned by nextjs
+RUN chown -R nextjs:nodejs /app
 
 # Switch to non-root user
 USER nextjs

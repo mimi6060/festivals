@@ -8,6 +8,12 @@ import (
 	"gorm.io/gorm"
 )
 
+// StockUpdate represents a stock change for a product
+type StockUpdate struct {
+	ProductID uuid.UUID
+	Delta     int
+}
+
 type Repository interface {
 	Create(ctx context.Context, product *Product) error
 	CreateBulk(ctx context.Context, products []Product) error
@@ -18,6 +24,8 @@ type Repository interface {
 	Update(ctx context.Context, product *Product) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	UpdateStock(ctx context.Context, id uuid.UUID, delta int) error
+	// UpdateStockBulk atomically updates stock for multiple products in a single transaction
+	UpdateStockBulk(ctx context.Context, updates []StockUpdate) error
 }
 
 type repository struct {
@@ -126,6 +134,75 @@ func (r *repository) UpdateStock(ctx context.Context, id uuid.UUID, delta int) e
 		} else if product.Status == ProductStatusOutOfStock && newStock > 0 {
 			if err := tx.Model(&product).Update("status", ProductStatusActive).Error; err != nil {
 				return fmt.Errorf("failed to update status: %w", err)
+			}
+		}
+
+		return nil
+	})
+}
+
+// UpdateStockBulk atomically updates stock for multiple products in a single transaction
+// This prevents N+1 queries when updating stock for multiple items in an order
+func (r *repository) UpdateStockBulk(ctx context.Context, updates []StockUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Collect all product IDs
+		ids := make([]uuid.UUID, len(updates))
+		for i, u := range updates {
+			ids[i] = u.ProductID
+		}
+
+		// Lock and fetch all products in a single query
+		var products []Product
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+			Where("id IN ?", ids).
+			Find(&products).Error; err != nil {
+			return fmt.Errorf("failed to lock products: %w", err)
+		}
+
+		// Create a map for quick lookup
+		productMap := make(map[uuid.UUID]*Product, len(products))
+		for i := range products {
+			productMap[products[i].ID] = &products[i]
+		}
+
+		// Process each update
+		for _, update := range updates {
+			product, exists := productMap[update.ProductID]
+			if !exists {
+				continue // Product not found, skip
+			}
+
+			if product.Stock == nil {
+				continue // Unlimited stock
+			}
+
+			newStock := *product.Stock + update.Delta
+			if newStock < 0 {
+				newStock = 0
+			}
+
+			// Determine new status
+			var newStatus ProductStatus
+			if newStock == 0 {
+				newStatus = ProductStatusOutOfStock
+			} else if product.Status == ProductStatusOutOfStock {
+				newStatus = ProductStatusActive
+			} else {
+				newStatus = product.Status
+			}
+
+			// Update in single query
+			if err := tx.Model(&Product{}).
+				Where("id = ?", update.ProductID).
+				Updates(map[string]interface{}{
+					"stock":  newStock,
+					"status": newStatus,
+				}).Error; err != nil {
+				return fmt.Errorf("failed to update product %s stock: %w", update.ProductID, err)
 			}
 		}
 

@@ -55,7 +55,8 @@ func SetupSyncTestSuite(t *testing.T) *SyncTestSuite {
 	// Initialize sync repository and service
 	syncRepo := sync.NewRepository(baseSuite.DB)
 	walletRepo := wallet.NewRepository(baseSuite.DB)
-	syncService := sync.NewService(syncRepo, walletRepo, "test-secret-key-for-sync-testing")
+	// Use a properly-sized test secret key (32+ characters) - DO NOT USE IN PRODUCTION
+	syncService := sync.NewService(syncRepo, walletRepo, "TEST_ONLY_not_for_production_use_32chars_min_sync_secret")
 
 	return &SyncTestSuite{
 		TestSuite:   baseSuite,

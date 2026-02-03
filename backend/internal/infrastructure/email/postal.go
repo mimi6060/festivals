@@ -10,8 +10,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/mimi6060/festivals/backend/internal/domain/notification"
 	"github.com/rs/zerolog/log"
 )
+
+// Verify PostalClient implements notification.EmailClient interface
+var _ notification.EmailClient = (*PostalClient)(nil)
 
 // PostalClient handles email sending through Postal mail server
 type PostalClient struct {
@@ -115,20 +119,13 @@ type postalResponseData struct {
 	Messages  map[string]interface{} `json:"messages"`
 }
 
-// SendEmailResult represents the result of sending an email
-type SendEmailResult struct {
-	MessageID string
-	Success   bool
-	Error     string
-}
-
-// SendEmail sends an email with the given parameters
-func (c *PostalClient) SendEmail(ctx context.Context, to, subject, htmlBody, textBody string) (*SendEmailResult, error) {
+// SendEmail sends an email with the given parameters (implements notification.EmailClient)
+func (c *PostalClient) SendEmail(ctx context.Context, to, subject, htmlBody, textBody string) (*notification.EmailSendResult, error) {
 	return c.SendEmailMultiple(ctx, []string{to}, subject, htmlBody, textBody)
 }
 
 // SendEmailMultiple sends an email to multiple recipients
-func (c *PostalClient) SendEmailMultiple(ctx context.Context, to []string, subject, htmlBody, textBody string) (*SendEmailResult, error) {
+func (c *PostalClient) SendEmailMultiple(ctx context.Context, to []string, subject, htmlBody, textBody string) (*notification.EmailSendResult, error) {
 	from := c.fromEmail
 	if c.fromName != "" {
 		from = fmt.Sprintf("%s <%s>", c.fromName, c.fromEmail)
@@ -145,13 +142,23 @@ func (c *PostalClient) SendEmailMultiple(ctx context.Context, to []string, subje
 	return c.sendRequest(ctx, req)
 }
 
-// SendEmailWithAttachments sends an email with attachments
-func (c *PostalClient) SendEmailWithAttachments(ctx context.Context, req SendEmailRequest) (*SendEmailResult, error) {
+// SendEmailWithAttachments sends an email with attachments (implements notification.EmailClient)
+func (c *PostalClient) SendEmailWithAttachments(ctx context.Context, req notification.EmailSendRequest) (*notification.EmailSendResult, error) {
 	from := req.From
 	if from == "" {
 		from = c.fromEmail
 		if c.fromName != "" {
 			from = fmt.Sprintf("%s <%s>", c.fromName, c.fromEmail)
+		}
+	}
+
+	// Convert domain attachments to internal format
+	attachments := make([]Attachment, len(req.Attachments))
+	for i, a := range req.Attachments {
+		attachments[i] = Attachment{
+			Name:        a.Name,
+			ContentType: a.ContentType,
+			Data:        a.Data,
 		}
 	}
 
@@ -163,7 +170,7 @@ func (c *PostalClient) SendEmailWithAttachments(ctx context.Context, req SendEma
 		Subject:     req.Subject,
 		HTMLBody:    req.HTMLBody,
 		PlainBody:   req.TextBody,
-		Attachments: req.Attachments,
+		Attachments: attachments,
 		Headers:     req.Headers,
 		Tag:         req.Tag,
 	}
@@ -182,7 +189,7 @@ type TemplatedEmailRequest struct {
 // SendTemplatedEmail sends an email using a pre-defined template
 // Note: This method is designed to work with an external template system
 // For Go template-based emails, use the notification service directly
-func (c *PostalClient) SendTemplatedEmail(ctx context.Context, to, templateID string, variables map[string]interface{}) (*SendEmailResult, error) {
+func (c *PostalClient) SendTemplatedEmail(ctx context.Context, to, templateID string, variables map[string]interface{}) (*notification.EmailSendResult, error) {
 	// Postal doesn't have native template support, so this would typically
 	// integrate with an external template service or use Go templates
 	// This is a placeholder that logs the intent - actual implementation
@@ -193,14 +200,14 @@ func (c *PostalClient) SendTemplatedEmail(ctx context.Context, to, templateID st
 		Str("templateId", templateID).
 		Msg("SendTemplatedEmail called - use notification service for Go template rendering")
 
-	return &SendEmailResult{
+	return &notification.EmailSendResult{
 		Success: false,
 		Error:   "use notification service for template rendering",
 	}, fmt.Errorf("SendTemplatedEmail should be called through notification service")
 }
 
 // sendRequest makes the actual HTTP request to Postal with retry logic
-func (c *PostalClient) sendRequest(ctx context.Context, req postalSendRequest) (*SendEmailResult, error) {
+func (c *PostalClient) sendRequest(ctx context.Context, req postalSendRequest) (*notification.EmailSendResult, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -253,7 +260,7 @@ func (c *PostalClient) sendRequest(ctx context.Context, req postalSendRequest) (
 }
 
 // doSendRequest performs a single HTTP request to Postal
-func (c *PostalClient) doSendRequest(ctx context.Context, body []byte, req postalSendRequest) (*SendEmailResult, error) {
+func (c *PostalClient) doSendRequest(ctx context.Context, body []byte, req postalSendRequest) (*notification.EmailSendResult, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/send/message", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -294,7 +301,7 @@ func (c *PostalClient) doSendRequest(ctx context.Context, body []byte, req posta
 			Str("status", postalResp.Status).
 			Str("response", string(respBody)).
 			Msg("Postal API returned error")
-		return &SendEmailResult{
+		return &notification.EmailSendResult{
 			Success: false,
 			Error:   fmt.Sprintf("postal API error: %s", postalResp.Status),
 		}, fmt.Errorf("postal API error: %s", postalResp.Status)
@@ -306,7 +313,7 @@ func (c *PostalClient) doSendRequest(ctx context.Context, body []byte, req posta
 		Str("subject", req.Subject).
 		Msg("Email sent successfully")
 
-	return &SendEmailResult{
+	return &notification.EmailSendResult{
 		MessageID: postalResp.Data.MessageID,
 		Success:   true,
 	}, nil

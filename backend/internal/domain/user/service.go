@@ -9,6 +9,17 @@ import (
 	"github.com/mimi6060/festivals/backend/internal/pkg/errors"
 )
 
+// getOrNotFound is a helper that wraps repository lookups with nil-check pattern
+func getOrNotFound[T any](result *T, err error) (*T, error) {
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, errors.ErrNotFound
+	}
+	return result, nil
+}
+
 // Service handles user business logic
 type Service struct {
 	repo Repository
@@ -104,48 +115,24 @@ func (s *Service) GetOrCreateFromAuth0(ctx context.Context, profile Auth0Profile
 
 // GetByID retrieves a user by ID
 func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*User, error) {
-	user, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if user == nil {
-		return nil, errors.ErrNotFound
-	}
-	return user, nil
+	return getOrNotFound(s.repo.GetByID(ctx, id))
 }
 
 // GetByAuth0ID retrieves a user by Auth0 ID
 func (s *Service) GetByAuth0ID(ctx context.Context, auth0ID string) (*User, error) {
-	user, err := s.repo.GetByAuth0ID(ctx, auth0ID)
-	if err != nil {
-		return nil, err
-	}
-	if user == nil {
-		return nil, errors.ErrNotFound
-	}
-	return user, nil
+	return getOrNotFound(s.repo.GetByAuth0ID(ctx, auth0ID))
 }
 
 // GetByEmail retrieves a user by email
 func (s *Service) GetByEmail(ctx context.Context, email string) (*User, error) {
-	user, err := s.repo.GetByEmail(ctx, email)
-	if err != nil {
-		return nil, err
-	}
-	if user == nil {
-		return nil, errors.ErrNotFound
-	}
-	return user, nil
+	return getOrNotFound(s.repo.GetByEmail(ctx, email))
 }
 
 // UpdateProfile updates a user's profile information
 func (s *Service) UpdateProfile(ctx context.Context, id uuid.UUID, req UpdateUserRequest) (*User, error) {
-	user, err := s.repo.GetByID(ctx, id)
+	user, err := getOrNotFound(s.repo.GetByID(ctx, id))
 	if err != nil {
 		return nil, err
-	}
-	if user == nil {
-		return nil, errors.ErrNotFound
 	}
 
 	// Apply updates
@@ -213,12 +200,9 @@ func (s *Service) UpdateRole(ctx context.Context, id uuid.UUID, role UserRole) (
 		return nil, errors.ErrValidation
 	}
 
-	user, err := s.repo.GetByID(ctx, id)
+	user, err := getOrNotFound(s.repo.GetByID(ctx, id))
 	if err != nil {
 		return nil, err
-	}
-	if user == nil {
-		return nil, errors.ErrNotFound
 	}
 
 	user.Role = role
@@ -233,12 +217,9 @@ func (s *Service) UpdateRole(ctx context.Context, id uuid.UUID, role UserRole) (
 
 // BanUser bans a user (admin function)
 func (s *Service) BanUser(ctx context.Context, id uuid.UUID, reason string) (*User, error) {
-	user, err := s.repo.GetByID(ctx, id)
+	user, err := getOrNotFound(s.repo.GetByID(ctx, id))
 	if err != nil {
 		return nil, err
-	}
-	if user == nil {
-		return nil, errors.ErrNotFound
 	}
 
 	// Prevent banning admins
@@ -258,12 +239,9 @@ func (s *Service) BanUser(ctx context.Context, id uuid.UUID, reason string) (*Us
 
 // UnbanUser unbans a user (admin function)
 func (s *Service) UnbanUser(ctx context.Context, id uuid.UUID) (*User, error) {
-	user, err := s.repo.GetByID(ctx, id)
+	user, err := getOrNotFound(s.repo.GetByID(ctx, id))
 	if err != nil {
 		return nil, err
-	}
-	if user == nil {
-		return nil, errors.ErrNotFound
 	}
 
 	if user.Status != UserStatusBanned {
@@ -282,12 +260,9 @@ func (s *Service) UnbanUser(ctx context.Context, id uuid.UUID) (*User, error) {
 
 // Delete deletes a user (admin function)
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	user, err := s.repo.GetByID(ctx, id)
+	user, err := getOrNotFound(s.repo.GetByID(ctx, id))
 	if err != nil {
 		return err
-	}
-	if user == nil {
-		return errors.ErrNotFound
 	}
 
 	// Prevent deleting admins

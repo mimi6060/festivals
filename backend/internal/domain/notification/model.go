@@ -1,10 +1,48 @@
 package notification
 
 import (
+	"context"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// EmailClient defines the interface for sending emails
+// This interface should be implemented by infrastructure layer (e.g., PostalClient, SendGridClient)
+type EmailClient interface {
+	// SendEmail sends an email with the given parameters
+	SendEmail(ctx context.Context, to, subject, htmlBody, textBody string) (*EmailSendResult, error)
+	// SendEmailWithAttachments sends an email with attachments
+	SendEmailWithAttachments(ctx context.Context, req EmailSendRequest) (*EmailSendResult, error)
+}
+
+// EmailSendRequest represents a request to send an email
+type EmailSendRequest struct {
+	To          []string
+	CC          []string
+	BCC         []string
+	From        string
+	Subject     string
+	HTMLBody    string
+	TextBody    string
+	Attachments []EmailAttachment
+	Headers     map[string]string
+	Tag         string
+}
+
+// EmailAttachment represents an email attachment
+type EmailAttachment struct {
+	Name        string
+	ContentType string
+	Data        string // Base64 encoded
+}
+
+// EmailSendResult represents the result of sending an email
+type EmailSendResult struct {
+	MessageID string
+	Success   bool
+	Error     string
+}
 
 // EmailTemplate represents the type of email template
 type EmailTemplate string

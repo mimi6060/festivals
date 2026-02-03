@@ -28,6 +28,23 @@ var (
 	ErrDecryptionFailed = errors.New("decryption failed")
 	// ErrKeyRotationInProgress indicates key rotation is in progress
 	ErrKeyRotationInProgress = errors.New("key rotation in progress")
+	// ErrInvalidArgon2Params indicates Argon2 parameters are out of safe range
+	ErrInvalidArgon2Params = errors.New("invalid Argon2 parameters")
+)
+
+// Argon2 parameter constraints (OWASP recommendations)
+const (
+	// Minimum values
+	Argon2MinTime    uint32 = 1
+	Argon2MinMemory  uint32 = 19 * 1024   // 19 MB minimum (OWASP minimum for Argon2id)
+	Argon2MinThreads uint8  = 1
+	Argon2MinKeyLen  uint32 = 16
+
+	// Maximum values (prevent DoS via excessive resource consumption)
+	Argon2MaxTime    uint32 = 10
+	Argon2MaxMemory  uint32 = 1024 * 1024 // 1 GB maximum
+	Argon2MaxThreads uint8  = 16
+	Argon2MaxKeyLen  uint32 = 64
 )
 
 // EncryptionConfig holds encryption configuration
@@ -62,6 +79,27 @@ type Encryptor struct {
 	keyVersion      int
 }
 
+// ValidateArgon2Params validates Argon2 parameters are within safe ranges
+func ValidateArgon2Params(time, memory uint32, threads uint8, keyLen uint32) error {
+	if time < Argon2MinTime || time > Argon2MaxTime {
+		return fmt.Errorf("%w: time must be between %d and %d, got %d",
+			ErrInvalidArgon2Params, Argon2MinTime, Argon2MaxTime, time)
+	}
+	if memory < Argon2MinMemory || memory > Argon2MaxMemory {
+		return fmt.Errorf("%w: memory must be between %d KB and %d KB, got %d KB",
+			ErrInvalidArgon2Params, Argon2MinMemory, Argon2MaxMemory, memory)
+	}
+	if threads < Argon2MinThreads || threads > Argon2MaxThreads {
+		return fmt.Errorf("%w: threads must be between %d and %d, got %d",
+			ErrInvalidArgon2Params, Argon2MinThreads, Argon2MaxThreads, threads)
+	}
+	if keyLen < Argon2MinKeyLen || keyLen > Argon2MaxKeyLen {
+		return fmt.Errorf("%w: keyLen must be between %d and %d, got %d",
+			ErrInvalidArgon2Params, Argon2MinKeyLen, Argon2MaxKeyLen, keyLen)
+	}
+	return nil
+}
+
 // NewEncryptor creates a new encryptor with the given configuration
 func NewEncryptor(cfg EncryptionConfig) (*Encryptor, error) {
 	if len(cfg.PrimaryKey) != 32 {
@@ -84,6 +122,11 @@ func NewEncryptor(cfg EncryptionConfig) (*Encryptor, error) {
 	}
 	if cfg.Argon2KeyLen == 0 {
 		cfg.Argon2KeyLen = 32
+	}
+
+	// Validate Argon2 parameters
+	if err := ValidateArgon2Params(cfg.Argon2Time, cfg.Argon2Memory, cfg.Argon2Threads, cfg.Argon2KeyLen); err != nil {
+		return nil, err
 	}
 
 	enc := &Encryptor{
