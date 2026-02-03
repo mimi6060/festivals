@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import DOMPurify from 'dompurify'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -811,7 +812,13 @@ export default function NotificationSettingsPage() {
                 <h3 className="mb-2 text-sm font-medium text-gray-700">HTML Preview</h3>
                 <div
                   className="rounded-lg border bg-gray-50 p-4"
-                  dangerouslySetInnerHTML={{ __html: previewTemplate.htmlBody }}
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(previewTemplate.htmlBody, {
+                      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'a', 'b', 'i', 'u', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'img'],
+                      ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style', 'src', 'alt', 'width', 'height'],
+                      FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input'],
+                    })
+                  }}
                 />
               </div>
               <div>

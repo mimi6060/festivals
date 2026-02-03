@@ -137,8 +137,9 @@ func main() {
 		c.Redirect(http.StatusMovedPermanently, "/swagger/index.html")
 	})
 
-	// WebSocket endpoints for real-time dashboard
+	// WebSocket endpoints for real-time dashboard (authenticated)
 	wsGroup := router.Group("/ws")
+	wsGroup.Use(middleware.AuthWithSimpleConfig(cfg.Auth0Domain, cfg.Auth0Audience, cfg.Environment))
 	{
 		// Dashboard WebSocket - real-time stats, transactions, revenue
 		wsGroup.GET("/dashboard/:festivalId", websocket.DashboardHandler(wsHub))
