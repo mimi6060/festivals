@@ -172,7 +172,6 @@ export default function ArtistProfilePage() {
   }
 
   const handleSave = () => {
-    console.log('Saving profile:', profile)
     setHasChanges(false)
     // API call would go here
   }

@@ -436,7 +436,6 @@ export default function InvitationsPage() {
             <InvitationForm
               festivalId={festivalId}
               onSubmit={(data) => {
-                console.log('New invitation:', data)
                 setShowNewInvitation(false)
               }}
               onCancel={() => setShowNewInvitation(false)}

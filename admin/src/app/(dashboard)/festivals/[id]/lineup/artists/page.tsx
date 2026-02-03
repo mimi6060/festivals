@@ -153,7 +153,6 @@ export default function ArtistsPage() {
 
   const handleDelete = (artistId: string) => {
     // TODO: Implement actual delete via API
-    console.log('Deleting artist:', artistId)
     setDeleteConfirm(null)
   }
 

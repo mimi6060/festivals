@@ -276,8 +276,6 @@ export default function NewPerformancePage() {
       //   status: formData.status,
       // })
 
-      console.log('Creating performance:', formData)
-
       // Simulate API delay
       await new Promise((resolve) => setTimeout(resolve, 1000))
 

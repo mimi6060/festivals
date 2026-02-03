@@ -158,7 +158,6 @@ export default function NewArtistPage() {
     try {
       // TODO: Implement actual API call
       // await artistsApi.create(festivalId, formData)
-      console.log('Creating artist:', formData)
 
       // Simulate API delay
       await new Promise((resolve) => setTimeout(resolve, 1000))

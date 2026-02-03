@@ -345,7 +345,6 @@ export default function StaffListPage() {
   // Edit staff
   const handleEdit = (member: StaffMember) => {
     // TODO: Open edit modal
-    console.log('Edit staff:', member)
   }
 
   // Delete staff

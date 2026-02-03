@@ -133,7 +133,6 @@ export default function PaymentsSettingsPage() {
 
     try {
       // await paymentsApi.updateSettings(festivalId, data)
-      console.log('Saving payment settings:', data)
       setMessage({ type: 'success', text: 'Payment settings saved successfully' })
     } catch (error) {
       console.error('Failed to save settings:', error)

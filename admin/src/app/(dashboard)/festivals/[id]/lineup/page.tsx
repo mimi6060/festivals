@@ -129,7 +129,6 @@ export default function LineupPage() {
   const handleDrop = (stageId: string, hour: number) => {
     if (draggedPerformance) {
       // TODO: Implement actual rescheduling via API
-      console.log(`Moving performance ${draggedPerformance} to stage ${stageId} at hour ${hour}`)
       setDraggedPerformance(null)
     }
   }

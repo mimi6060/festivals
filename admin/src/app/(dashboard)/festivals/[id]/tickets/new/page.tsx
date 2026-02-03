@@ -90,7 +90,6 @@ export default function NewTicketTypePage() {
 
       // const ticketType = await ticketsApi.createTicketType(festivalId, data)
       // Simulate API call
-      console.log('Creating ticket type:', data, 'as draft:', asDraft)
       await new Promise((resolve) => setTimeout(resolve, 1000))
 
       router.push(`/festivals/${festivalId}/tickets`)
