@@ -66,3 +66,8 @@ func (m *MockRepository) UpdateStock(ctx context.Context, id uuid.UUID, delta in
 	args := m.Called(ctx, id, delta)
 	return args.Error(0)
 }
+
+func (m *MockRepository) UpdateStockBulk(ctx context.Context, updates []StockUpdate) error {
+	args := m.Called(ctx, updates)
+	return args.Error(0)
+}

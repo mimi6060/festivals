@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/mimi6060/festivals/backend/internal/infrastructure/email"
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/sms"
 	"github.com/rs/zerolog/log"
 )
@@ -146,7 +145,7 @@ type NotificationResult struct {
 
 // NotificationHub is the central hub for sending notifications across multiple channels
 type NotificationHub struct {
-	emailClient    *email.PostalClient
+	emailClient    EmailClient
 	smsClient      *sms.TwilioClient
 	pushService    *PushService
 	prefsService   *PreferencesService
@@ -178,7 +177,7 @@ type HubConfig struct {
 
 // NewNotificationHub creates a new notification hub
 func NewNotificationHub(
-	emailClient *email.PostalClient,
+	emailClient EmailClient,
 	smsClient *sms.TwilioClient,
 	pushService *PushService,
 	prefsService *PreferencesService,

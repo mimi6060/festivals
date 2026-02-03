@@ -1476,8 +1476,9 @@ func RecordFailedLogin(ctx context.Context, client *redis.Client, clientIP strin
 		return
 	}
 	key := "auth_ratelimit:login:ip:" + clientIP
-	// The sliding window rate limit already tracks this, but we can use this
-	// for additional tracking if needed
+	// Increment the failed login counter with 1 hour expiry
+	client.Incr(ctx, key)
+	client.Expire(ctx, key, time.Hour)
 }
 
 // RecordSuccessfulLogin clears the failed login counter for an IP

@@ -2,7 +2,6 @@ package payment
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/account"
 	"github.com/stripe/stripe-go/v76/accountlink"
+	"github.com/stripe/stripe-go/v76/balance"
 	"github.com/stripe/stripe-go/v76/customer"
 	"github.com/stripe/stripe-go/v76/paymentintent"
 	"github.com/stripe/stripe-go/v76/refund"
@@ -635,17 +635,11 @@ func (c *StripeClient) RetrieveConnectAccountBalance(ctx context.Context, accoun
 	params := &stripe.BalanceParams{}
 	params.SetStripeAccount(accountID)
 
-	// Note: balance.Get requires the Stripe-Account header for connected accounts
-	// This is handled by the SetStripeAccount method
-	bal, err := stripe.GetBackend(stripe.APIBackend).Call("GET", "/v1/balance", c.secretKey, params, nil)
+	// Use the balance.Get API for connected accounts
+	bal, err := balance.Get(params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve balance: %w", err)
 	}
 
-	var balance stripe.Balance
-	if err := json.Unmarshal(bal, &balance); err != nil {
-		return nil, fmt.Errorf("failed to parse balance: %w", err)
-	}
-
-	return &balance, nil
+	return bal, nil
 }
