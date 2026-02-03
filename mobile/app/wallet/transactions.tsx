@@ -9,6 +9,7 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useWalletStore, Transaction, TransactionType } from '@/stores/walletStore';
 import TransactionItem from '@/components/wallet/TransactionItem';
@@ -28,6 +29,7 @@ const FILTER_OPTIONS: FilterOption[] = [
 ];
 
 export default function TransactionsScreen() {
+  const router = useRouter();
   const {
     transactions,
     currencyName,
@@ -405,8 +407,15 @@ export default function TransactionsScreen() {
             <View className="p-4 border-t border-gray-200">
               <TouchableOpacity
                 onPress={() => {
-                  // TODO: Implement report issue
+                  // Navigate to report issue screen with transaction context
+                  const txId = selectedTransaction?.id;
                   setSelectedTransaction(null);
+                  if (txId) {
+                    router.push({
+                      pathname: '/support/report',
+                      params: { transactionId: txId }
+                    });
+                  }
                 }}
                 className="bg-gray-100 rounded-xl p-4 flex-row items-center justify-center"
               >

@@ -1,4 +1,3 @@
-import { withMiddlewareAuthRequired } from '@auth0/nextjs-auth0/edge'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
@@ -33,7 +32,7 @@ function isProduction(): boolean {
   return process.env.NODE_ENV === 'production'
 }
 
-export default function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   // Allow public routes
@@ -64,8 +63,18 @@ export default function middleware(req: NextRequest) {
     return response
   }
 
-  // Use Auth0 middleware for protected routes
-  return withMiddlewareAuthRequired()(req, {} as any)
+  // For Auth0 v4, check session by verifying cookie presence
+  // The actual authentication is handled by Auth0 SDK in the route handlers
+  const sessionCookie = req.cookies.get('appSession')
+
+  if (!sessionCookie) {
+    // Redirect to login if no session
+    const loginUrl = new URL('/api/auth/login', req.url)
+    loginUrl.searchParams.set('returnTo', pathname)
+    return NextResponse.redirect(loginUrl)
+  }
+
+  return NextResponse.next()
 }
 
 export const config = {

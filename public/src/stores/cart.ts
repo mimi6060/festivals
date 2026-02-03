@@ -2,6 +2,23 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Cart, CartItem, CartOptions } from '@/types'
 import type { TicketType } from '@/lib/api'
+import { getTicketTypes } from '@/lib/api'
+
+export interface CartValidationResult {
+  valid: boolean
+  errors: CartValidationError[]
+  updatedItems: CartItem[]
+}
+
+export interface CartValidationError {
+  ticketTypeId: string
+  type: 'unavailable' | 'price_changed' | 'insufficient_stock' | 'expired'
+  message: string
+  oldPrice?: number
+  newPrice?: number
+  requestedQuantity?: number
+  availableQuantity?: number
+}
 
 interface CartState extends Cart {
   addItem: (ticketType: TicketType, quantity: number) => void
@@ -12,15 +29,18 @@ interface CartState extends Cart {
   clearCart: () => void
   getTotalItems: () => number
   getTotalPrice: () => number
+  validateCart: () => Promise<CartValidationResult>
+  lastValidated: number | null
 }
 
-const initialState: Cart = {
+const initialState: Cart & { lastValidated: number | null } = {
   items: [],
   options: {
     camping: false,
     parking: false,
   },
   festivalId: null,
+  lastValidated: null,
 }
 
 export const useCartStore = create<CartState>()(
@@ -111,6 +131,129 @@ export const useCartStore = create<CartState>()(
 
         return total
       },
+
+      validateCart: async (): Promise<CartValidationResult> => {
+        const { items, festivalId } = get()
+        const errors: CartValidationError[] = []
+        const updatedItems: CartItem[] = []
+
+        if (!festivalId || items.length === 0) {
+          return { valid: true, errors: [], updatedItems: items }
+        }
+
+        try {
+          // Fetch current ticket types from server
+          const currentTicketTypes = await getTicketTypes(festivalId)
+          const ticketTypesMap = new Map(currentTicketTypes.map(tt => [tt.id, tt]))
+
+          for (const item of items) {
+            const serverTicketType = ticketTypesMap.get(item.ticketTypeId)
+
+            // Check if ticket type still exists and is active
+            if (!serverTicketType) {
+              errors.push({
+                ticketTypeId: item.ticketTypeId,
+                type: 'unavailable',
+                message: `Le billet "${item.ticketType.name}" n'est plus disponible.`,
+              })
+              continue
+            }
+
+            // Check if ticket type is still active
+            if (serverTicketType.status !== 'ACTIVE') {
+              errors.push({
+                ticketTypeId: item.ticketTypeId,
+                type: serverTicketType.status === 'SOLD_OUT' ? 'insufficient_stock' : 'unavailable',
+                message: serverTicketType.status === 'SOLD_OUT'
+                  ? `Le billet "${item.ticketType.name}" est epuise.`
+                  : `Le billet "${item.ticketType.name}" n'est plus en vente.`,
+              })
+              continue
+            }
+
+            // Check if price has changed
+            if (serverTicketType.price !== item.ticketType.price) {
+              errors.push({
+                ticketTypeId: item.ticketTypeId,
+                type: 'price_changed',
+                message: `Le prix du billet "${item.ticketType.name}" a change.`,
+                oldPrice: item.ticketType.price,
+                newPrice: serverTicketType.price,
+              })
+            }
+
+            // Check available stock
+            if (serverTicketType.available < item.quantity) {
+              if (serverTicketType.available === 0) {
+                errors.push({
+                  ticketTypeId: item.ticketTypeId,
+                  type: 'insufficient_stock',
+                  message: `Le billet "${item.ticketType.name}" n'est plus disponible en quantite suffisante.`,
+                  requestedQuantity: item.quantity,
+                  availableQuantity: serverTicketType.available,
+                })
+                continue
+              } else {
+                errors.push({
+                  ticketTypeId: item.ticketTypeId,
+                  type: 'insufficient_stock',
+                  message: `Seulement ${serverTicketType.available} billet(s) "${item.ticketType.name}" disponible(s).`,
+                  requestedQuantity: item.quantity,
+                  availableQuantity: serverTicketType.available,
+                })
+              }
+            }
+
+            // Check validity period
+            const now = new Date()
+            const validFrom = new Date(serverTicketType.validFrom)
+            const validUntil = new Date(serverTicketType.validUntil)
+
+            if (now < validFrom || now > validUntil) {
+              errors.push({
+                ticketTypeId: item.ticketTypeId,
+                type: 'expired',
+                message: `La vente du billet "${item.ticketType.name}" est terminee.`,
+              })
+              continue
+            }
+
+            // Add to updated items with server data
+            updatedItems.push({
+              ...item,
+              ticketType: serverTicketType,
+              quantity: Math.min(item.quantity, serverTicketType.available),
+            })
+          }
+
+          // Update last validated timestamp
+          set({ lastValidated: Date.now() })
+
+          // If there are errors but some items are valid, update the cart
+          if (updatedItems.length > 0 && updatedItems.length !== items.length) {
+            set({ items: updatedItems })
+          } else if (updatedItems.length > 0) {
+            // Update prices if they changed
+            set({ items: updatedItems })
+          }
+
+          return {
+            valid: errors.length === 0,
+            errors,
+            updatedItems,
+          }
+        } catch (error) {
+          // If validation fails due to network error, allow checkout to proceed
+          // The server will validate again during order creation
+          return {
+            valid: true,
+            errors: [],
+            updatedItems: items,
+          }
+        }
+      },
+
+      lastValidated: null,
     }),
     {
       name: 'festival-cart',

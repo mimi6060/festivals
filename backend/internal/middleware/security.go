@@ -26,6 +26,10 @@ type SecurityConfig struct {
 	CSRFExcludePaths  []string
 	CSRFExcludeMethods []string
 
+	// HTTPS Enforcement
+	ForceHTTPS          bool   // Redirect HTTP to HTTPS in production
+	HTTPSExcludePaths   []string // Paths excluded from HTTPS redirect (e.g., health checks)
+
 	// Security Headers
 	EnableSecurityHeaders bool
 	FrameOptions          string // DENY, SAMEORIGIN, or ALLOW-FROM uri
@@ -67,6 +71,9 @@ func DefaultSecurityConfig() SecurityConfig {
 		CSRFExcludePaths:  []string{"/health", "/ready", "/metrics", "/api/v1/webhooks"},
 		CSRFExcludeMethods: []string{"GET", "HEAD", "OPTIONS"},
 
+		ForceHTTPS:         false, // Enable in production
+		HTTPSExcludePaths:  []string{"/health", "/ready", "/metrics"},
+
 		EnableSecurityHeaders:   true,
 		FrameOptions:            "DENY",
 		ContentTypeNosniff:      true,
@@ -91,6 +98,14 @@ func DefaultSecurityConfig() SecurityConfig {
 	}
 }
 
+// ProductionSecurityConfig returns security configuration suitable for production
+func ProductionSecurityConfig() SecurityConfig {
+	cfg := DefaultSecurityConfig()
+	cfg.ForceHTTPS = true
+	cfg.CSRFCookieSecure = true
+	return cfg
+}
+
 // CSRF token store (in-memory fallback)
 var (
 	csrfTokens     = make(map[string]time.Time)
@@ -100,6 +115,13 @@ var (
 // Security creates a comprehensive security middleware
 func Security(cfg SecurityConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// HTTPS enforcement in production
+		if cfg.ForceHTTPS && !isHTTPSExempt(c, cfg) {
+			if !enforceHTTPS(c) {
+				return
+			}
+		}
+
 		// Apply security headers
 		if cfg.EnableSecurityHeaders {
 			applySecurityHeaders(c, cfg)
@@ -132,6 +154,72 @@ func Security(cfg SecurityConfig) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// HTTPSEnforcement creates a middleware that redirects HTTP to HTTPS
+func HTTPSEnforcement(excludePaths []string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Check if path is excluded
+		for _, path := range excludePaths {
+			if strings.HasPrefix(c.Request.URL.Path, path) {
+				c.Next()
+				return
+			}
+		}
+
+		if !enforceHTTPS(c) {
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// isHTTPSExempt checks if the request path is exempt from HTTPS enforcement
+func isHTTPSExempt(c *gin.Context, cfg SecurityConfig) bool {
+	for _, path := range cfg.HTTPSExcludePaths {
+		if strings.HasPrefix(c.Request.URL.Path, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// enforceHTTPS redirects HTTP requests to HTTPS and returns false if redirected
+func enforceHTTPS(c *gin.Context) bool {
+	// Check X-Forwarded-Proto header (for load balancers/proxies)
+	proto := c.GetHeader("X-Forwarded-Proto")
+	if proto == "" {
+		proto = c.Request.URL.Scheme
+	}
+	if proto == "" {
+		// Check if TLS is enabled
+		if c.Request.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+
+	// If already HTTPS, continue
+	if proto == "https" {
+		return true
+	}
+
+	// Redirect to HTTPS
+	host := c.Request.Host
+	path := c.Request.URL.RequestURI()
+	httpsURL := "https://" + host + path
+
+	log.Warn().
+		Str("from", "http://"+host+path).
+		Str("to", httpsURL).
+		Str("ip", c.ClientIP()).
+		Msg("Redirecting HTTP to HTTPS")
+
+	c.Redirect(http.StatusMovedPermanently, httpsURL)
+	c.Abort()
+	return false
 }
 
 // SecurityHeaders creates a middleware that only applies security headers

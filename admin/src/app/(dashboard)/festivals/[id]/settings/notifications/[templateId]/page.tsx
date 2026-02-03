@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import DOMPurify from 'dompurify'
 import {
   ArrowLeft,
   Save,
@@ -29,6 +30,36 @@ import {
   defaultVariables,
   UpdateTemplateInput,
 } from '@/lib/api/notifications'
+
+// Sanitize HTML content to prevent XSS attacks
+const sanitizeHtml = (html: string): string => {
+  // Configure DOMPurify for email preview
+  // Allow common email HTML elements and styles
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      'html', 'head', 'body', 'style', 'meta', 'title',
+      'div', 'span', 'p', 'br', 'hr',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'a', 'img',
+      'table', 'thead', 'tbody', 'tr', 'td', 'th',
+      'ul', 'ol', 'li',
+      'strong', 'b', 'em', 'i', 'u',
+      'center', 'font',
+    ],
+    ALLOWED_ATTR: [
+      'href', 'src', 'alt', 'title', 'width', 'height',
+      'style', 'class', 'id', 'name',
+      'border', 'cellpadding', 'cellspacing', 'align', 'valign',
+      'bgcolor', 'color', 'face', 'size',
+      'charset', 'content', 'http-equiv',
+    ],
+    ALLOW_DATA_ATTR: false, // Disable data attributes for security
+    ADD_TAGS: ['style'], // Allow style tags for email templates
+    ADD_ATTR: ['target'], // Allow target attribute for links
+    FORBID_CONTENTS: ['script', 'iframe', 'object', 'embed', 'form'], // Strictly forbid dangerous elements
+    WHOLE_DOCUMENT: true, // Allow full HTML documents
+  })
+}
 
 type ViewMode = 'html' | 'text' | 'preview'
 
@@ -440,10 +471,16 @@ Questions? Contact us at support@festival.com
                   <div>
                     <p className="mb-2 text-sm font-medium text-gray-700">Email Preview:</p>
                     <div className="rounded-lg border bg-white">
+                      {/*
+                        SECURITY: Sanitize HTML before rendering to prevent XSS attacks.
+                        The sandbox attribute provides additional security by restricting
+                        the iframe's capabilities (no scripts, forms, popups, etc.)
+                      */}
                       <iframe
-                        srcDoc={previewHtml}
+                        srcDoc={sanitizeHtml(previewHtml)}
                         className="h-[500px] w-full rounded-lg"
                         title="Email preview"
+                        sandbox="allow-same-origin"
                       />
                     </div>
                   </div>

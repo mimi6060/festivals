@@ -1,8 +1,8 @@
 'use client'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { UserProvider } from '@auth0/nextjs-auth0/client'
 import { useState } from 'react'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -17,11 +17,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
       })
   )
 
+  // Auth0 v4 manages sessions server-side through the Auth0Client
+  // No need for UserProvider wrapper anymore
   return (
-    <UserProvider>
+    <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         {children}
       </QueryClientProvider>
-    </UserProvider>
+    </ErrorBoundary>
   )
 }

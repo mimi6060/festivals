@@ -7,8 +7,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mimi6060/festivals/backend/internal/middleware"
 	"github.com/mimi6060/festivals/backend/internal/pkg/errors"
 	"github.com/mimi6060/festivals/backend/internal/pkg/response"
+)
+
+// Role constants for ticket access control
+const (
+	RoleAdmin = "admin"
+	RoleStaff = "staff"
 )
 
 type Handler struct {
@@ -451,9 +458,11 @@ func (h *Handler) GetTicketQRCode(c *gin.Context) {
 
 	// Check ownership (unless user is admin/staff)
 	if ticket.UserID == nil || *ticket.UserID != userID {
-		// TODO: Add admin/staff check here
-		response.Forbidden(c, "You do not own this ticket")
-		return
+		// Allow admin and staff to access any ticket
+		if !middleware.HasAnyRole(c.Request.Context(), RoleAdmin, RoleStaff) {
+			response.Forbidden(c, "You do not own this ticket")
+			return
+		}
 	}
 
 	// Generate QR code

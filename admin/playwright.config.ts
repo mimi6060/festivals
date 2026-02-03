@@ -28,10 +28,10 @@ export default defineConfig({
 
   // Reporter configuration
   reporter: [
-    ['list'],
+    ['list', {}],
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
     ['json', { outputFile: 'test-results/results.json' }],
-    ...(process.env.CI ? [['github' as const]] : []),
+    ...(process.env.CI ? [['github', {}] as const] : []),
   ],
 
   // Shared settings for all projects

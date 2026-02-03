@@ -1,19 +1,6 @@
-import { handleAuth, handleLogin, handleLogout, handleCallback } from '@auth0/nextjs-auth0'
+import { auth0 } from '@/lib/auth0'
 
-export const GET = handleAuth({
-  login: handleLogin({
-    returnTo: '/',
-    authorizationParams: {
-      audience: process.env.AUTH0_AUDIENCE,
-      scope: 'openid profile email',
-    },
-  }),
-  logout: handleLogout({
-    returnTo: '/',
-  }),
-  callback: handleCallback({
-    afterCallback: (_req, session) => {
-      return session
-    },
-  }),
-})
+// Auth0 v4 route handler
+// The Auth0Client handles all auth routes automatically
+export const GET = auth0.handleAuth()
+export const POST = auth0.handleAuth()

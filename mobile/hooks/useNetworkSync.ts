@@ -25,7 +25,9 @@ export interface UseNetworkSyncOptions {
   onComingOnline?: () => void;
 }
 
-const DEFAULT_SYNC_INTERVAL = 30000; // 30 seconds
+// Sync configuration constants
+const DEFAULT_SYNC_INTERVAL = 30000; // 30 seconds between periodic syncs
+const RECONNECTION_DELAY_MS = 2500; // 2.5 seconds delay after coming online to ensure network stability
 
 /**
  * Hook that monitors network status and auto-syncs when coming online
@@ -142,10 +144,11 @@ export const useNetworkSync = (options: UseNetworkSyncOptions = {}) => {
 
         // Auto-sync when coming online
         if (autoSync && pendingTransactions.length > 0) {
-          // Small delay to ensure network is stable
+          // Delay sync to ensure network connection is stable before attempting
+          // This prevents failed syncs due to intermittent connectivity
           setTimeout(() => {
             forceSync();
-          }, 1000);
+          }, RECONNECTION_DELAY_MS);
         }
       }
     },

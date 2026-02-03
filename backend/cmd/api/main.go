@@ -109,7 +109,7 @@ func main() {
 	// Middleware
 	router.Use(gin.Recovery())
 	router.Use(middleware.Logger())
-	router.Use(middleware.CORS())
+	router.Use(middleware.CORSForEnvironment(cfg.Environment, cfg.CORSAllowedOrigins))
 	router.Use(middleware.RequestID())
 	router.Use(middleware.MetricsWithConfig(middleware.DefaultMetricsConfig()))
 

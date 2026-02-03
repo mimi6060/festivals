@@ -206,9 +206,9 @@ export default function FestivalDashboardPage() {
                   <p className="font-medium">{alert.title}</p>
                   <p className="text-sm opacity-90">{alert.message}</p>
                 </div>
-                {('actionUrl' in alert && alert.actionUrl) || ('action_url' in alert && alert.action_url) ? (
+                {(('actionUrl' in alert && alert.actionUrl) || ('action_url' in alert && (alert as {action_url?: string}).action_url)) ? (
                   <Link
-                    href={('actionUrl' in alert ? alert.actionUrl : alert.action_url) || '#'}
+                    href={('actionUrl' in alert ? alert.actionUrl : (alert as {action_url?: string}).action_url) || '#'}
                     className="text-sm font-medium underline hover:no-underline"
                   >
                     Voir

@@ -149,33 +149,10 @@ func (s *Service) DeleteTicketType(ctx context.Context, id uuid.UUID) error {
 
 // Ticket operations
 
-// CreateTicket creates a new ticket with a unique secure code
+// CreateTicket creates a new ticket with a unique secure code using atomic operations
+// This method uses pessimistic locking (SELECT FOR UPDATE) to prevent overselling
 func (s *Service) CreateTicket(ctx context.Context, festivalID uuid.UUID, req CreateTicketRequest) (*Ticket, error) {
-	// Get ticket type
-	ticketType, err := s.repo.GetTicketTypeByID(ctx, req.TicketTypeID)
-	if err != nil {
-		return nil, err
-	}
-	if ticketType == nil {
-		return nil, errors.ErrNotFound
-	}
-
-	// Check if ticket type belongs to the festival
-	if ticketType.FestivalID != festivalID {
-		return nil, fmt.Errorf("ticket type does not belong to this festival")
-	}
-
-	// Check ticket type status
-	if ticketType.Status != TicketTypeStatusActive {
-		return nil, fmt.Errorf("ticket type is not available")
-	}
-
-	// Check availability
-	if ticketType.Quantity != nil && ticketType.QuantitySold >= *ticketType.Quantity {
-		return nil, fmt.Errorf("tickets sold out")
-	}
-
-	// Generate secure unique code
+	// Generate secure unique code first (outside transaction to avoid holding locks)
 	code, err := generateSecureCode()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate ticket code: %w", err)
@@ -197,15 +174,9 @@ func (s *Service) CreateTicket(ctx context.Context, festivalID uuid.UUID, req Cr
 		UpdatedAt: time.Now(),
 	}
 
-	// Create ticket
-	if err := s.repo.CreateTicket(ctx, ticket); err != nil {
-		return nil, fmt.Errorf("failed to create ticket: %w", err)
-	}
-
-	// Update quantity sold
-	if err := s.repo.UpdateQuantitySold(ctx, req.TicketTypeID, 1); err != nil {
-		// Note: In a real scenario, this should be done in a transaction
-		return nil, fmt.Errorf("failed to update quantity sold: %w", err)
+	// Use atomic ticket creation with inventory check
+	if err := s.repo.CreateTicketAtomic(ctx, festivalID, ticket); err != nil {
+		return nil, err
 	}
 
 	return ticket, nil

@@ -36,8 +36,10 @@ services:
     ports:
       - "3001:3000"
     environment:
+      # IMPORTANT: Change GRAFANA_ADMIN_PASSWORD in production!
+      # Generate a secure password: openssl rand -base64 32
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3001}
       - GF_SMTP_ENABLED=${GF_SMTP_ENABLED:-false}
@@ -47,6 +49,10 @@ services:
       - GF_ALERTING_ENABLED=true
       - GF_UNIFIED_ALERTING_ENABLED=true
       - GF_FEATURE_TOGGLES_ENABLE=ngalert
+      # Security hardening
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_STRICT_TRANSPORT_SECURITY=true
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -119,11 +125,13 @@ services:
       - redis
 
   # PostgreSQL Exporter - Database Metrics
+  # SECURITY: Uses credentials from environment variables - no hardcoded passwords
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     container_name: festivals-postgres-exporter
     environment:
-      - DATA_SOURCE_NAME=postgresql://festivals:password@postgres:5432/festivals?sslmode=disable
+      # SECURITY: Credentials must be provided via .env file
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:?POSTGRES_USER required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@postgres:5432/${POSTGRES_DB:-festivals}?sslmode=disable
     ports:
       - "9187:9187"
     networks:

@@ -92,11 +92,29 @@ export interface SyncResult {
   errors: Array<{ id: string; error: string }>;
 }
 
-// Maximum retry attempts before marking as failed
+// Sync configuration constants
+// These values are tuned for mobile network reliability
+
+/** Maximum retry attempts before marking a transaction as failed */
 const MAX_RETRY_COUNT = 3;
 
-// Minimum time between retries (in ms)
+/**
+ * Minimum time between retry attempts (in ms)
+ * Set to 5 seconds to allow network to stabilize between retries
+ * Uses exponential backoff: 5s, 10s, 20s for subsequent retries
+ */
 const RETRY_DELAY_MS = 5000;
+
+/**
+ * Calculate retry delay with exponential backoff
+ * @param retryCount Current retry count (0-based)
+ * @returns Delay in milliseconds
+ */
+const calculateRetryDelay = (retryCount: number): number => {
+  // Exponential backoff: 5s, 10s, 20s (capped at 20s)
+  const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+  return Math.min(delay, 20000); // Cap at 20 seconds
+};
 
 export const useSyncStore = create<SyncState>()(
   persist(
@@ -158,10 +176,11 @@ export const useSyncStore = create<SyncState>()(
         );
 
         for (const transaction of sortedTransactions) {
-          // Check if enough time has passed since last retry
+          // Check if enough time has passed since last retry (using exponential backoff)
           if (transaction.lastRetryAt) {
             const timeSinceLastRetry = Date.now() - new Date(transaction.lastRetryAt).getTime();
-            if (timeSinceLastRetry < RETRY_DELAY_MS) {
+            const requiredDelay = calculateRetryDelay(transaction.retryCount);
+            if (timeSinceLastRetry < requiredDelay) {
               continue; // Skip this transaction, not enough time passed
             }
           }

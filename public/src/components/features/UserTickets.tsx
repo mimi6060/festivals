@@ -77,8 +77,9 @@ function TicketCard({ ticket }: { ticket: UserTicket }) {
           title: `Mon billet - ${ticket.ticketType?.name}`,
           text: `Billet pour le festival - Code: ${ticket.code}`,
         })
-      } catch (err) {
-        console.error('Error sharing:', err)
+      } catch {
+        // User cancelled share or share failed - silently ignore
+        // This is expected behavior when user dismisses the share dialog
       }
     }
   }

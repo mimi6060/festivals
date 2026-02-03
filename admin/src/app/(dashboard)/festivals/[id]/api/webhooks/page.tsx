@@ -652,7 +652,12 @@ export default function WebhooksPage() {
       {showForm && (
         <WebhookForm
           webhook={editingWebhook}
-          onSave={editingWebhook ? handleUpdateWebhook : handleCreateWebhook}
+          onSave={(data: CreateWebhookInput | UpdateWebhookInput) => {
+            if (editingWebhook) {
+              return handleUpdateWebhook(data as UpdateWebhookInput)
+            }
+            return handleCreateWebhook(data as CreateWebhookInput)
+          }}
           onClose={() => {
             setShowForm(false)
             setEditingWebhook(null)

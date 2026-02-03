@@ -11,6 +11,7 @@ export interface InputProps
   leftIcon?: React.ReactNode
   rightIcon?: React.ReactNode
   containerClassName?: string
+  showCharacterCount?: boolean
 }
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
@@ -26,6 +27,11 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       rightIcon,
       disabled,
       id,
+      showCharacterCount,
+      maxLength,
+      value,
+      defaultValue,
+      onChange,
       ...props
     },
     ref
@@ -33,6 +39,18 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     const inputId = id || React.useId()
     const errorId = `${inputId}-error`
     const hintId = `${inputId}-hint`
+    const [internalValue, setInternalValue] = React.useState(defaultValue?.toString() || '')
+
+    // Use controlled value if provided, otherwise use internal state
+    const currentValue = value !== undefined ? value.toString() : internalValue
+    const characterCount = currentValue.length
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (value === undefined) {
+        setInternalValue(e.target.value)
+      }
+      onChange?.(e)
+    }
 
     return (
       <div className={cn('w-full', containerClassName)}>
@@ -66,6 +84,10 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
             id={inputId}
             ref={ref}
             disabled={disabled}
+            maxLength={maxLength}
+            value={value}
+            defaultValue={value === undefined ? defaultValue : undefined}
+            onChange={handleChange}
             aria-invalid={!!error}
             aria-describedby={
               error ? errorId : hint ? hintId : undefined
@@ -104,16 +126,28 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
             </div>
           )}
         </div>
-        {error && (
-          <p id={errorId} className="mt-2 text-sm text-red-400">
-            {error}
-          </p>
-        )}
-        {!error && hint && (
-          <p id={hintId} className="mt-2 text-sm text-gray-500">
-            {hint}
-          </p>
-        )}
+        <div className="flex justify-between mt-2">
+          <div>
+            {error && (
+              <p id={errorId} className="text-sm text-red-400">
+                {error}
+              </p>
+            )}
+            {!error && hint && (
+              <p id={hintId} className="text-sm text-gray-500">
+                {hint}
+              </p>
+            )}
+          </div>
+          {showCharacterCount && maxLength && (
+            <p className={cn(
+              "text-sm",
+              characterCount >= maxLength ? "text-red-400" : "text-gray-500"
+            )}>
+              {characterCount}/{maxLength}
+            </p>
+          )}
+        </div>
       </div>
     )
   }

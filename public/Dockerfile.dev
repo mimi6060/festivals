@@ -1,15 +1,22 @@
 FROM node:20-alpine
 
+# Create non-root user for development
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -u 1001 -S nextjs -G nodejs
+
 WORKDIR /app
 
 # Copy package files
-COPY package.json package-lock.json* ./
+COPY --chown=nextjs:nodejs package.json package-lock.json* ./
 
 # Install dependencies
 RUN npm install
 
 # Copy source code
-COPY . .
+COPY --chown=nextjs:nodejs . .
+
+# Switch to non-root user
+USER nextjs
 
 # Expose port
 EXPOSE 3001

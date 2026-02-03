@@ -34,6 +34,8 @@ type Repository interface {
 	// Atomic operations
 	ProcessPayment(ctx context.Context, walletID uuid.UUID, amount int64, txData *Transaction) error
 	ProcessPaymentWithRetry(ctx context.Context, walletID uuid.UUID, amount int64, txData *Transaction, maxRetries int) error
+	TopUpAtomic(ctx context.Context, walletID uuid.UUID, amount int64, txData *Transaction) error
+	RefundAtomic(ctx context.Context, walletID uuid.UUID, amount int64, refundTx *Transaction, originalTxID uuid.UUID) error
 
 	// Aggregation operations
 	GetWalletStats(ctx context.Context, festivalID uuid.UUID) (*WalletStats, error)
@@ -347,6 +349,118 @@ func (r *repository) ProcessPayment(ctx context.Context, walletID uuid.UUID, amo
 		// Create transaction record
 		if err := dbTx.Create(txData).Error; err != nil {
 			return fmt.Errorf("failed to create transaction: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// TopUpAtomic atomically adds funds to a wallet
+func (r *repository) TopUpAtomic(ctx context.Context, walletID uuid.UUID, amount int64, txData *Transaction) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	return r.db.WithContext(ctx).Transaction(func(dbTx *gorm.DB) error {
+		// Lock the wallet row for update
+		var wallet Wallet
+		if err := dbTx.Raw("SELECT * FROM wallets WHERE id = ? FOR UPDATE", walletID).
+			Scan(&wallet).Error; err != nil {
+			return fmt.Errorf("failed to lock wallet: %w", err)
+		}
+
+		// Check if wallet was found
+		if wallet.ID == uuid.Nil {
+			return fmt.Errorf("wallet not found")
+		}
+
+		// Check wallet status
+		if wallet.Status != WalletStatusActive {
+			return fmt.Errorf("wallet is not active")
+		}
+
+		// Calculate new balance
+		newBalance := wallet.Balance + amount
+
+		// Set transaction balances
+		txData.BalanceBefore = wallet.Balance
+		txData.BalanceAfter = newBalance
+
+		// Update wallet balance
+		result := dbTx.Model(&Wallet{}).
+			Where("id = ? AND balance = ?", walletID, wallet.Balance).
+			Updates(map[string]interface{}{
+				"balance":    newBalance,
+				"updated_at": time.Now(),
+			})
+
+		if result.Error != nil {
+			return fmt.Errorf("failed to update balance: %w", result.Error)
+		}
+
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("concurrent modification detected, please retry")
+		}
+
+		// Create transaction record
+		if err := dbTx.Create(txData).Error; err != nil {
+			return fmt.Errorf("failed to create transaction: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// RefundAtomic atomically processes a refund
+func (r *repository) RefundAtomic(ctx context.Context, walletID uuid.UUID, amount int64, refundTx *Transaction, originalTxID uuid.UUID) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	return r.db.WithContext(ctx).Transaction(func(dbTx *gorm.DB) error {
+		// Lock the wallet row for update
+		var wallet Wallet
+		if err := dbTx.Raw("SELECT * FROM wallets WHERE id = ? FOR UPDATE", walletID).
+			Scan(&wallet).Error; err != nil {
+			return fmt.Errorf("failed to lock wallet: %w", err)
+		}
+
+		// Check if wallet was found
+		if wallet.ID == uuid.Nil {
+			return fmt.Errorf("wallet not found")
+		}
+
+		// Calculate new balance
+		newBalance := wallet.Balance + amount
+
+		// Set transaction balances
+		refundTx.BalanceBefore = wallet.Balance
+		refundTx.BalanceAfter = newBalance
+
+		// Update wallet balance
+		result := dbTx.Model(&Wallet{}).
+			Where("id = ? AND balance = ?", walletID, wallet.Balance).
+			Updates(map[string]interface{}{
+				"balance":    newBalance,
+				"updated_at": time.Now(),
+			})
+
+		if result.Error != nil {
+			return fmt.Errorf("failed to update balance: %w", result.Error)
+		}
+
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("concurrent modification detected, please retry")
+		}
+
+		// Create refund transaction record
+		if err := dbTx.Create(refundTx).Error; err != nil {
+			return fmt.Errorf("failed to create refund transaction: %w", err)
+		}
+
+		// Mark original transaction as refunded
+		if err := dbTx.Model(&Transaction{}).
+			Where("id = ?", originalTxID).
+			Update("status", TransactionStatusRefunded).Error; err != nil {
+			return fmt.Errorf("failed to update original transaction: %w", err)
 		}
 
 		return nil

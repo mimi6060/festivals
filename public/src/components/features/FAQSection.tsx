@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { motion } from 'framer-motion'
+import DOMPurify from 'dompurify'
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui'
 import type { FAQ } from '@/lib/api'
 
@@ -64,7 +65,11 @@ export function FAQSection({ faqs }: FAQSectionProps) {
                 <AccordionContent>
                   <div
                     className="prose prose-invert prose-sm max-w-none"
-                    dangerouslySetInnerHTML={{ __html: faq.answer }}
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(faq.answer, {
+                      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'a', 'b', 'i', 'u', 'span'],
+                      ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
+                      ALLOW_DATA_ATTR: false,
+                    }) }}
                   />
                 </AccordionContent>
               </AccordionItem>

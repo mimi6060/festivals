@@ -119,3 +119,13 @@ func (m *MockRepository) GetTransactionSummary(ctx context.Context, walletID uui
 	}
 	return args.Get(0).(*TransactionSummary), args.Error(1)
 }
+
+func (m *MockRepository) TopUpAtomic(ctx context.Context, walletID uuid.UUID, amount int64, txData *Transaction) error {
+	args := m.Called(ctx, walletID, amount, txData)
+	return args.Error(0)
+}
+
+func (m *MockRepository) RefundAtomic(ctx context.Context, walletID uuid.UUID, amount int64, refundTx *Transaction, originalTxID uuid.UUID) error {
+	args := m.Called(ctx, walletID, amount, refundTx, originalTxID)
+	return args.Error(0)
+}

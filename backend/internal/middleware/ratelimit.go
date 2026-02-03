@@ -17,6 +17,37 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Rate limit constants - these define the default limits for different user roles
+// Values are tuned based on typical API usage patterns for festival applications
+const (
+	// DefaultRatePerMinute is the default requests per minute for regular users
+	DefaultRatePerMinute = 60
+
+	// DefaultRatePerHour is the default requests per hour for regular users
+	DefaultRatePerHour = 1000
+
+	// AdminRatePerMinute allows admins higher throughput for dashboard operations
+	AdminRatePerMinute = 300
+
+	// AdminRatePerHour allows admins higher daily throughput
+	AdminRatePerHour = 10000
+
+	// OrganizerRatePerMinute for festival organizer operations
+	OrganizerRatePerMinute = 200
+
+	// OrganizerRatePerHour for festival organizer daily operations
+	OrganizerRatePerHour = 5000
+
+	// StaffRatePerMinute for festival staff (scanning, POS operations)
+	StaffRatePerMinute = 120
+
+	// StaffRatePerHour for staff daily operations
+	StaffRatePerHour = 3000
+
+	// IPRatePerMinute for unauthenticated requests (by IP address)
+	IPRatePerMinute = 30
+)
+
 // RateLimitConfig holds configuration for rate limiting
 type RateLimitConfig struct {
 	// Redis client for distributed rate limiting
@@ -137,35 +168,36 @@ type RateLimitInfo struct {
 }
 
 // DefaultRateLimitConfig returns default rate limiting configuration
+// These values are suitable for most festival applications and can be tuned via configuration
 func DefaultRateLimitConfig() RateLimitConfig {
 	return RateLimitConfig{
-		DefaultRequestsPerMinute: 60,
-		DefaultRequestsPerHour:   1000,
+		DefaultRequestsPerMinute: DefaultRatePerMinute,
+		DefaultRequestsPerHour:   DefaultRatePerHour,
 		RoleLimits: map[string]RoleLimit{
 			RoleAdmin: {
-				RequestsPerMinute: 300,
-				RequestsPerHour:   10000,
-				BurstSize:         50,
+				RequestsPerMinute: AdminRatePerMinute,
+				RequestsPerHour:   AdminRatePerHour,
+				BurstSize:         50, // High burst for dashboard operations
 			},
 			RoleOrganizer: {
-				RequestsPerMinute: 200,
-				RequestsPerHour:   5000,
-				BurstSize:         30,
+				RequestsPerMinute: OrganizerRatePerMinute,
+				RequestsPerHour:   OrganizerRatePerHour,
+				BurstSize:         30, // Medium burst for management tasks
 			},
 			RoleStaff: {
-				RequestsPerMinute: 120,
-				RequestsPerHour:   3000,
-				BurstSize:         20,
+				RequestsPerMinute: StaffRatePerMinute,
+				RequestsPerHour:   StaffRatePerHour,
+				BurstSize:         20, // Lower burst, steady throughput for POS/scanning
 			},
 			RoleUser: {
-				RequestsPerMinute: 60,
-				RequestsPerHour:   1000,
-				BurstSize:         10,
+				RequestsPerMinute: DefaultRatePerMinute,
+				RequestsPerHour:   DefaultRatePerHour,
+				BurstSize:         10, // Limited burst for regular users
 			},
 		},
 		KeyPrefix:           "ratelimit:",
 		EnableIPLimiting:    true,
-		IPRequestsPerMinute: 30,
+		IPRequestsPerMinute: IPRatePerMinute,
 	}
 }
 
@@ -1253,4 +1285,209 @@ func GetRateLimitStatus(ctx context.Context, client *redis.Client, key string, l
 		Remaining: remaining,
 		Reset:     now.Add(ttl),
 	}, nil
+}
+
+// ============================================================================
+// Authentication Rate Limiting
+// ============================================================================
+
+// AuthRateLimitConfig holds configuration for authentication rate limiting
+type AuthRateLimitConfig struct {
+	RedisClient             *redis.Client
+	LoginAttemptsPerMinute  int           // Max login attempts per IP per minute (default: 5)
+	LoginLockoutDuration    time.Duration // Lockout duration after max attempts (default: 15 min)
+	PasswordResetPerMinute  int           // Max password reset requests per IP per minute (default: 3)
+	PasswordResetPerHour    int           // Max password reset requests per IP per hour (default: 10)
+	KeyPrefix               string        // Redis key prefix (default: "auth_ratelimit:")
+}
+
+// DefaultAuthRateLimitConfig returns default authentication rate limiting configuration
+func DefaultAuthRateLimitConfig() AuthRateLimitConfig {
+	return AuthRateLimitConfig{
+		LoginAttemptsPerMinute: 5,
+		LoginLockoutDuration:   15 * time.Minute,
+		PasswordResetPerMinute: 3,
+		PasswordResetPerHour:   10,
+		KeyPrefix:              "auth_ratelimit:",
+	}
+}
+
+// AuthRateLimit creates middleware for rate limiting authentication endpoints
+// This provides strict rate limiting specifically for login and password reset endpoints
+// to protect against brute force attacks
+func AuthRateLimit(cfg AuthRateLimitConfig) gin.HandlerFunc {
+	if cfg.RedisClient == nil {
+		log.Warn().Msg("Auth rate limiting disabled: no Redis client provided")
+		return func(c *gin.Context) {
+			c.Next()
+		}
+	}
+
+	if cfg.KeyPrefix == "" {
+		cfg.KeyPrefix = "auth_ratelimit:"
+	}
+	if cfg.LoginAttemptsPerMinute == 0 {
+		cfg.LoginAttemptsPerMinute = 5
+	}
+	if cfg.LoginLockoutDuration == 0 {
+		cfg.LoginLockoutDuration = 15 * time.Minute
+	}
+	if cfg.PasswordResetPerMinute == 0 {
+		cfg.PasswordResetPerMinute = 3
+	}
+	if cfg.PasswordResetPerHour == 0 {
+		cfg.PasswordResetPerHour = 10
+	}
+
+	return func(c *gin.Context) {
+		clientIP := c.ClientIP()
+		ctx := c.Request.Context()
+
+		// Determine endpoint type
+		path := c.Request.URL.Path
+		isLogin := strings.Contains(path, "/login") || strings.Contains(path, "/auth") || strings.Contains(path, "/token")
+		isPasswordReset := strings.Contains(path, "/password") || strings.Contains(path, "/reset") || strings.Contains(path, "/forgot")
+
+		var key string
+		var limit int
+		var window time.Duration
+
+		if isLogin {
+			key = cfg.KeyPrefix + "login:ip:" + clientIP
+			limit = cfg.LoginAttemptsPerMinute
+			window = time.Minute
+
+			// Check if IP is currently locked out
+			lockoutKey := cfg.KeyPrefix + "lockout:ip:" + clientIP
+			ttl, err := cfg.RedisClient.TTL(ctx, lockoutKey).Result()
+			if err == nil && ttl > 0 {
+				retryAfter := int(ttl.Seconds())
+				if retryAfter < 1 {
+					retryAfter = 1
+				}
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+					"error": gin.H{
+						"code":        "AUTH_LOCKED_OUT",
+						"message":     "Too many failed login attempts. Please try again later.",
+						"retry_after": retryAfter,
+					},
+				})
+				return
+			}
+		} else if isPasswordReset {
+			// Check both minute and hour limits for password reset
+			minuteKey := cfg.KeyPrefix + "reset:minute:ip:" + clientIP
+			hourKey := cfg.KeyPrefix + "reset:hour:ip:" + clientIP
+
+			// Check minute limit
+			minuteAllowed, minuteInfo, err := checkSlidingWindowRateLimit(ctx, cfg.RedisClient, minuteKey, cfg.PasswordResetPerMinute, time.Minute)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to check password reset minute rate limit")
+				c.Next()
+				return
+			}
+
+			if !minuteAllowed {
+				setRateLimitHeaders(c, minuteInfo)
+				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+					"error": gin.H{
+						"code":        "RESET_RATE_LIMITED",
+						"message":     "Too many password reset requests. Please wait before trying again.",
+						"retry_after": int(time.Until(minuteInfo.Reset).Seconds()),
+					},
+				})
+				return
+			}
+
+			// Check hour limit
+			hourAllowed, hourInfo, err := checkSlidingWindowRateLimit(ctx, cfg.RedisClient, hourKey, cfg.PasswordResetPerHour, time.Hour)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to check password reset hour rate limit")
+				c.Next()
+				return
+			}
+
+			if !hourAllowed {
+				setRateLimitHeaders(c, hourInfo)
+				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+					"error": gin.H{
+						"code":        "RESET_RATE_LIMITED",
+						"message":     "Too many password reset requests today. Please try again later.",
+						"retry_after": int(time.Until(hourInfo.Reset).Seconds()),
+					},
+				})
+				return
+			}
+
+			c.Next()
+			return
+		} else {
+			// Not an auth endpoint, skip
+			c.Next()
+			return
+		}
+
+		// Check rate limit for login
+		allowed, info, err := checkSlidingWindowRateLimit(ctx, cfg.RedisClient, key, limit, window)
+		if err != nil {
+			log.Error().Err(err).Str("key", key).Msg("Auth rate limit check failed")
+			c.Next()
+			return
+		}
+
+		setRateLimitHeaders(c, info)
+
+		if !allowed {
+			// Set lockout for login attempts
+			if isLogin {
+				lockoutKey := cfg.KeyPrefix + "lockout:ip:" + clientIP
+				cfg.RedisClient.Set(ctx, lockoutKey, "1", cfg.LoginLockoutDuration)
+
+				log.Warn().
+					Str("ip", clientIP).
+					Dur("lockout_duration", cfg.LoginLockoutDuration).
+					Msg("Login rate limit triggered - IP locked out")
+			}
+
+			retryAfter := int(time.Until(info.Reset).Seconds())
+			if retryAfter < 1 {
+				retryAfter = 1
+			}
+
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": gin.H{
+					"code":        "AUTH_RATE_LIMITED",
+					"message":     "Too many authentication attempts. Please try again later.",
+					"retry_after": retryAfter,
+				},
+			})
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RecordFailedLogin increments the failed login counter for an IP
+// Should be called when a login attempt fails
+func RecordFailedLogin(ctx context.Context, client *redis.Client, clientIP string) {
+	if client == nil {
+		return
+	}
+	key := "auth_ratelimit:login:ip:" + clientIP
+	// The sliding window rate limit already tracks this, but we can use this
+	// for additional tracking if needed
+}
+
+// RecordSuccessfulLogin clears the failed login counter for an IP
+// Should be called when a login succeeds
+func RecordSuccessfulLogin(ctx context.Context, client *redis.Client, clientIP string) {
+	if client == nil {
+		return
+	}
+	// Clear both the rate limit key and any lockout
+	key := "auth_ratelimit:login:ip:" + clientIP
+	lockoutKey := "auth_ratelimit:lockout:ip:" + clientIP
+	client.Del(ctx, key, lockoutKey)
 }

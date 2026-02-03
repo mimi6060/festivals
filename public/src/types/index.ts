@@ -12,6 +12,7 @@ export type {
   UserTicket,
   FAQ,
   FestivalInfo,
+  ApiError,
 } from '@/lib/api'
 
 // Cart types

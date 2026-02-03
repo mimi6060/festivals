@@ -19,6 +19,7 @@ type Repository interface {
 
 	// Ticket operations
 	CreateTicket(ctx context.Context, ticket *Ticket) error
+	CreateTicketAtomic(ctx context.Context, festivalID uuid.UUID, ticket *Ticket) error // Atomic ticket creation with inventory check
 	GetTicketByID(ctx context.Context, id uuid.UUID) (*Ticket, error)
 	GetTicketByCode(ctx context.Context, code string) (*Ticket, error)
 	ListTicketsByFestival(ctx context.Context, festivalID uuid.UUID, offset, limit int) ([]Ticket, int64, error)
@@ -119,6 +120,70 @@ func (r *repository) UpdateQuantitySold(ctx context.Context, ticketTypeID uuid.U
 
 func (r *repository) CreateTicket(ctx context.Context, ticket *Ticket) error {
 	return r.db.WithContext(ctx).Create(ticket).Error
+}
+
+// CreateTicketAtomic creates a ticket with atomic inventory check to prevent overselling
+// This method uses pessimistic locking (SELECT FOR UPDATE) to ensure only one ticket
+// can be created at a time for a given ticket type, preventing race conditions
+func (r *repository) CreateTicketAtomic(ctx context.Context, festivalID uuid.UUID, ticket *Ticket) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Lock the ticket type row for update to prevent concurrent modifications
+		var ticketType TicketType
+		if err := tx.Raw("SELECT * FROM ticket_types WHERE id = ? FOR UPDATE", ticket.TicketTypeID).
+			Scan(&ticketType).Error; err != nil {
+			return fmt.Errorf("failed to lock ticket type: %w", err)
+		}
+
+		// Check if ticket type exists
+		if ticketType.ID == uuid.Nil {
+			return fmt.Errorf("ticket type not found")
+		}
+
+		// Verify ticket type belongs to the festival
+		if ticketType.FestivalID != festivalID {
+			return fmt.Errorf("ticket type does not belong to this festival")
+		}
+
+		// Check ticket type status
+		if ticketType.Status != TicketTypeStatusActive {
+			return fmt.Errorf("ticket type is not available")
+		}
+
+		// Check availability with locked row - prevents race conditions
+		if ticketType.Quantity != nil && ticketType.QuantitySold >= *ticketType.Quantity {
+			return fmt.Errorf("tickets sold out")
+		}
+
+		// Create the ticket
+		if err := tx.Create(ticket).Error; err != nil {
+			return fmt.Errorf("failed to create ticket: %w", err)
+		}
+
+		// Atomically increment quantity sold
+		newQuantitySold := ticketType.QuantitySold + 1
+		result := tx.Model(&TicketType{}).
+			Where("id = ? AND quantity_sold = ?", ticket.TicketTypeID, ticketType.QuantitySold).
+			Update("quantity_sold", newQuantitySold)
+
+		if result.Error != nil {
+			return fmt.Errorf("failed to update quantity sold: %w", result.Error)
+		}
+
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("concurrent modification detected, please retry")
+		}
+
+		// Update status to sold out if needed
+		if ticketType.Quantity != nil && newQuantitySold >= *ticketType.Quantity {
+			if err := tx.Model(&TicketType{}).
+				Where("id = ?", ticket.TicketTypeID).
+				Update("status", TicketTypeStatusSoldOut).Error; err != nil {
+				return fmt.Errorf("failed to update ticket type status: %w", err)
+			}
+		}
+
+		return nil
+	})
 }
 
 func (r *repository) GetTicketByID(ctx context.Context, id uuid.UUID) (*Ticket, error) {

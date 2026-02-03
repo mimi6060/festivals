@@ -298,10 +298,13 @@ func TestConflict(t *testing.T) {
 }
 
 // TestInternalError tests the InternalError response function
+// Note: InternalError intentionally returns a generic message to clients
+// to prevent leaking sensitive internal error details
 func TestInternalError(t *testing.T) {
 	router := setupTestRouter()
 	router.GET("/test", func(c *gin.Context) {
-		InternalError(c, "Something went wrong")
+		// The internal message is logged but not returned to client
+		InternalError(c, "Database connection failed: password authentication failed for user 'admin'")
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -314,7 +317,11 @@ func TestInternalError(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Equal(t, "INTERNAL_ERROR", resp.Error.Code)
-	assert.Equal(t, "Something went wrong", resp.Error.Message)
+	// Client should receive a generic message, not the actual error
+	assert.Equal(t, "An unexpected error occurred. Please try again later.", resp.Error.Message)
+	// Ensure the internal message is NOT exposed
+	assert.NotContains(t, resp.Error.Message, "Database")
+	assert.NotContains(t, resp.Error.Message, "password")
 }
 
 // TestResponseStructSerialization tests that Response struct serializes correctly

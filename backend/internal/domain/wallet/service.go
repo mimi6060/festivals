@@ -14,14 +14,40 @@ import (
 )
 
 type Service struct {
-	repo      Repository
-	secretKey []byte // For QR code signing
+	repo            Repository
+	secretKey       []byte // For QR code signing
+	qrExpirySeconds int64  // QR code expiry time in seconds
 }
+
+// DefaultQRExpirySeconds is the default QR code expiry time (24 hours)
+// This is appropriate for ticket-based QR codes that need to remain valid for the event duration
+const DefaultQRExpirySeconds = 86400 // 24 hours
 
 func NewService(repo Repository, secretKey string) *Service {
 	return &Service{
-		repo:      repo,
-		secretKey: []byte(secretKey),
+		repo:            repo,
+		secretKey:       []byte(secretKey),
+		qrExpirySeconds: DefaultQRExpirySeconds,
+	}
+}
+
+// NewServiceWithConfig creates a new service with configurable QR expiry time
+func NewServiceWithConfig(repo Repository, secretKey string, qrExpirySeconds int) *Service {
+	expiry := int64(qrExpirySeconds)
+	if expiry <= 0 {
+		expiry = DefaultQRExpirySeconds
+	}
+	return &Service{
+		repo:            repo,
+		secretKey:       []byte(secretKey),
+		qrExpirySeconds: expiry,
+	}
+}
+
+// SetQRExpirySeconds allows updating the QR expiry time
+func (s *Service) SetQRExpirySeconds(seconds int) {
+	if seconds > 0 {
+		s.qrExpirySeconds = int64(seconds)
 	}
 }
 
@@ -71,30 +97,16 @@ func (s *Service) GetUserWallets(ctx context.Context, userID uuid.UUID) ([]Walle
 	return s.repo.GetWalletsByUser(ctx, userID)
 }
 
-// TopUp adds funds to a wallet
+// TopUp adds funds to a wallet using atomic database transaction
 func (s *Service) TopUp(ctx context.Context, walletID uuid.UUID, req TopUpRequest, staffID *uuid.UUID) (*Transaction, error) {
-	wallet, err := s.repo.GetWalletByID(ctx, walletID)
-	if err != nil {
-		return nil, err
-	}
-	if wallet == nil {
-		return nil, errors.ErrNotFound
-	}
-
-	if wallet.Status != WalletStatusActive {
-		return nil, fmt.Errorf("wallet is not active")
-	}
-
-	// Create transaction
+	// Use the repository's atomic top-up operation
 	tx := &Transaction{
-		ID:            uuid.New(),
-		WalletID:      walletID,
-		Type:          TransactionTypeTopUp,
-		Amount:        req.Amount,
-		BalanceBefore: wallet.Balance,
-		BalanceAfter:  wallet.Balance + req.Amount,
-		Reference:     req.Reference,
-		StaffID:       staffID,
+		ID:        uuid.New(),
+		WalletID:  walletID,
+		Type:      TransactionTypeTopUp,
+		Amount:    req.Amount,
+		Reference: req.Reference,
+		StaffID:   staffID,
 		Metadata: TransactionMeta{
 			PaymentMethod: req.PaymentMethod,
 		},
@@ -106,16 +118,9 @@ func (s *Service) TopUp(ctx context.Context, walletID uuid.UUID, req TopUpReques
 		tx.Type = TransactionTypeCashIn
 	}
 
-	// Update wallet balance
-	wallet.Balance += req.Amount
-	wallet.UpdatedAt = time.Now()
-
-	if err := s.repo.UpdateWallet(ctx, wallet); err != nil {
-		return nil, fmt.Errorf("failed to update wallet: %w", err)
-	}
-
-	if err := s.repo.CreateTransaction(ctx, tx); err != nil {
-		return nil, fmt.Errorf("failed to create transaction: %w", err)
+	// Execute atomic top-up operation
+	if err := s.repo.TopUpAtomic(ctx, walletID, req.Amount, tx); err != nil {
+		return nil, err
 	}
 
 	return tx, nil
@@ -143,7 +148,7 @@ func (s *Service) ProcessPayment(ctx context.Context, req PaymentRequest, staffI
 	return tx, nil
 }
 
-// RefundTransaction refunds a transaction
+// RefundTransaction refunds a transaction using atomic database transaction
 func (s *Service) RefundTransaction(ctx context.Context, transactionID uuid.UUID, reason string, staffID *uuid.UUID) (*Transaction, error) {
 	originalTx, err := s.repo.GetTransactionByID(ctx, transactionID)
 	if err != nil {
@@ -161,29 +166,18 @@ func (s *Service) RefundTransaction(ctx context.Context, transactionID uuid.UUID
 		return nil, fmt.Errorf("only purchases can be refunded")
 	}
 
-	// Get wallet
-	wallet, err := s.repo.GetWalletByID(ctx, originalTx.WalletID)
-	if err != nil {
-		return nil, err
-	}
-	if wallet == nil {
-		return nil, errors.ErrNotFound
-	}
-
 	// Calculate refund amount (original amount is negative for purchases)
 	refundAmount := -originalTx.Amount
 
-	// Create refund transaction
+	// Create refund transaction (balances will be set atomically by repository)
 	refundTx := &Transaction{
-		ID:            uuid.New(),
-		WalletID:      wallet.ID,
-		Type:          TransactionTypeRefund,
-		Amount:        refundAmount,
-		BalanceBefore: wallet.Balance,
-		BalanceAfter:  wallet.Balance + refundAmount,
-		Reference:     transactionID.String(),
-		StandID:       originalTx.StandID,
-		StaffID:       staffID,
+		ID:        uuid.New(),
+		WalletID:  originalTx.WalletID,
+		Type:      TransactionTypeRefund,
+		Amount:    refundAmount,
+		Reference: transactionID.String(),
+		StandID:   originalTx.StandID,
+		StaffID:   staffID,
 		Metadata: TransactionMeta{
 			Description: reason,
 		},
@@ -191,22 +185,9 @@ func (s *Service) RefundTransaction(ctx context.Context, transactionID uuid.UUID
 		CreatedAt: time.Now(),
 	}
 
-	// Update wallet balance
-	wallet.Balance += refundAmount
-	wallet.UpdatedAt = time.Now()
-
-	if err := s.repo.UpdateWallet(ctx, wallet); err != nil {
-		return nil, fmt.Errorf("failed to update wallet: %w", err)
-	}
-
-	if err := s.repo.CreateTransaction(ctx, refundTx); err != nil {
-		return nil, fmt.Errorf("failed to create refund transaction: %w", err)
-	}
-
-	// Mark original transaction as refunded
-	originalTx.Status = TransactionStatusRefunded
-	if err := s.repo.UpdateTransaction(ctx, originalTx); err != nil {
-		return nil, fmt.Errorf("failed to update original transaction: %w", err)
+	// Execute atomic refund operation
+	if err := s.repo.RefundAtomic(ctx, originalTx.WalletID, refundAmount, refundTx, transactionID); err != nil {
+		return nil, err
 	}
 
 	return refundTx, nil
@@ -277,8 +258,10 @@ func (s *Service) ValidateQRPayload(ctx context.Context, encoded string) (*QRCod
 		return nil, fmt.Errorf("invalid QR code data")
 	}
 
-	// Check timestamp (valid for 5 minutes)
-	if time.Now().Unix()-payload.Timestamp > 300 {
+	// Check timestamp using configurable expiry time
+	// Default is 24 hours (86400 seconds), suitable for ticket QR codes
+	// that need to remain valid for the duration of an event
+	if time.Now().Unix()-payload.Timestamp > s.qrExpirySeconds {
 		return nil, fmt.Errorf("QR code expired")
 	}
 
@@ -345,28 +328,15 @@ func (s *Service) UnfreezeWallet(ctx context.Context, walletID uuid.UUID) (*Wall
 
 // TopUpFromPayment adds funds to a wallet from a successful Stripe payment
 // This method is called by the payment service when a payment is confirmed
+// Uses atomic database transaction to ensure consistency
 func (s *Service) TopUpFromPayment(ctx context.Context, walletID uuid.UUID, amount int64, reference string) error {
-	wallet, err := s.repo.GetWalletByID(ctx, walletID)
-	if err != nil {
-		return fmt.Errorf("failed to get wallet: %w", err)
-	}
-	if wallet == nil {
-		return errors.ErrWalletNotFound
-	}
-
-	if wallet.Status != WalletStatusActive {
-		return errors.ErrWalletFrozen
-	}
-
-	// Create transaction
+	// Create transaction (balances will be set atomically by repository)
 	tx := &Transaction{
-		ID:            uuid.New(),
-		WalletID:      walletID,
-		Type:          TransactionTypeTopUp,
-		Amount:        amount,
-		BalanceBefore: wallet.Balance,
-		BalanceAfter:  wallet.Balance + amount,
-		Reference:     reference,
+		ID:        uuid.New(),
+		WalletID:  walletID,
+		Type:      TransactionTypeTopUp,
+		Amount:    amount,
+		Reference: reference,
 		Metadata: TransactionMeta{
 			PaymentMethod: "stripe",
 			Description:   "Stripe payment: " + reference,
@@ -375,17 +345,6 @@ func (s *Service) TopUpFromPayment(ctx context.Context, walletID uuid.UUID, amou
 		CreatedAt: time.Now(),
 	}
 
-	// Update wallet balance
-	wallet.Balance += amount
-	wallet.UpdatedAt = time.Now()
-
-	if err := s.repo.UpdateWallet(ctx, wallet); err != nil {
-		return fmt.Errorf("failed to update wallet balance: %w", err)
-	}
-
-	if err := s.repo.CreateTransaction(ctx, tx); err != nil {
-		return fmt.Errorf("failed to create transaction: %w", err)
-	}
-
-	return nil
+	// Execute atomic top-up operation
+	return s.repo.TopUpAtomic(ctx, walletID, amount, tx)
 }

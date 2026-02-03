@@ -1,11 +1,28 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
+
+const (
+	// MinSecretLength is the minimum required length for security secrets
+	MinSecretLength = 32
+)
+
+// ErrMissingSecret is returned when a required secret is not configured
+var ErrMissingSecret = errors.New("missing required secret")
+
+// ErrInsecureSecret is returned when a secret doesn't meet security requirements
+var ErrInsecureSecret = errors.New("secret does not meet security requirements")
+
+// ErrInsecureDefaultSecret is returned when using a known insecure default value
+var ErrInsecureDefaultSecret = errors.New("insecure default secret detected")
 
 type Config struct {
 	// Server
@@ -26,8 +43,12 @@ type Config struct {
 	JWTSecret string
 
 	// QR Code
-	QRCodeSecret string
-	QRCodeSize   int
+	QRCodeSecret        string
+	QRCodeSize          int
+	QRCodeExpirySeconds int // QR code expiry time in seconds (default 24 hours for tickets)
+
+	// CORS
+	CORSAllowedOrigins []string // Allowed origins for CORS
 
 	// Stripe
 	StripeSecretKey      string
@@ -73,10 +94,42 @@ func Load() (*Config, error) {
 	// Load .env file if exists
 	_ = godotenv.Load()
 
+	environment := getEnv("ENVIRONMENT", "development")
+	isProduction := environment == "production" || environment == "staging"
+
+	// Get secrets - no defaults for security-critical values
+	jwtSecret := os.Getenv("JWT_SECRET")
+	qrcodeSecret := os.Getenv("QRCODE_SECRET")
+
+	// SECURITY: Validate required secrets in production
+	if isProduction {
+		if err := validateRequiredSecret("JWT_SECRET", jwtSecret); err != nil {
+			return nil, err
+		}
+		if err := validateRequiredSecret("QRCODE_SECRET", qrcodeSecret); err != nil {
+			return nil, err
+		}
+	} else {
+		// In development, warn about missing/insecure secrets but allow startup
+		if jwtSecret == "" {
+			fmt.Println("WARNING: JWT_SECRET not set - using insecure development default. DO NOT USE IN PRODUCTION!")
+			jwtSecret = "dev-only-insecure-jwt-secret-do-not-use-in-production"
+		} else if isInsecureDefault(jwtSecret) {
+			fmt.Println("WARNING: JWT_SECRET appears to be a default value. DO NOT USE IN PRODUCTION!")
+		}
+
+		if qrcodeSecret == "" {
+			fmt.Println("WARNING: QRCODE_SECRET not set - using insecure development default. DO NOT USE IN PRODUCTION!")
+			qrcodeSecret = "dev-only-insecure-qrcode-secret-do-not-use-in-production"
+		} else if isInsecureDefault(qrcodeSecret) {
+			fmt.Println("WARNING: QRCODE_SECRET appears to be a default value. DO NOT USE IN PRODUCTION!")
+		}
+	}
+
 	return &Config{
 		// Server
 		Port:        getEnv("PORT", "8080"),
-		Environment: getEnv("ENVIRONMENT", "development"),
+		Environment: environment,
 
 		// Database
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://festivals:password@localhost:5432/festivals?sslmode=disable"),
@@ -88,12 +141,16 @@ func Load() (*Config, error) {
 		Auth0Domain:   getEnv("AUTH0_DOMAIN", ""),
 		Auth0Audience: getEnv("AUTH0_AUDIENCE", ""),
 
-		// JWT/Security
-		JWTSecret: getEnv("JWT_SECRET", "your-super-secret-key-change-in-production"),
+		// JWT/Security - No insecure defaults
+		JWTSecret: jwtSecret,
 
-		// QR Code
-		QRCodeSecret: getEnv("QRCODE_SECRET", "your-qrcode-secret-key-change-in-production"),
-		QRCodeSize:   getEnvInt("QRCODE_SIZE", 256),
+		// QR Code - No insecure defaults
+		QRCodeSecret:        qrcodeSecret,
+		QRCodeSize:          getEnvInt("QRCODE_SIZE", 256),
+		QRCodeExpirySeconds: getEnvInt("QRCODE_EXPIRY_SECONDS", 86400), // Default 24 hours for tickets
+
+		// CORS
+		CORSAllowedOrigins: getEnvStringSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "http://localhost:3001"}),
 
 		// Stripe
 		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
@@ -134,6 +191,45 @@ func Load() (*Config, error) {
 		AlertWebhookURLs:    getEnvStringSlice("ALERT_WEBHOOK_URLS", nil),
 		AlertWebhookSecret:  getEnv("ALERT_WEBHOOK_SECRET", ""),
 	}, nil
+}
+
+// validateRequiredSecret validates that a secret is present and meets security requirements
+func validateRequiredSecret(name, value string) error {
+	if value == "" {
+		return fmt.Errorf("%w: %s environment variable must be set", ErrMissingSecret, name)
+	}
+
+	if len(value) < MinSecretLength {
+		return fmt.Errorf("%w: %s must be at least %d characters (got %d)", ErrInsecureSecret, name, MinSecretLength, len(value))
+	}
+
+	if isInsecureDefault(value) {
+		return fmt.Errorf("%w: %s contains a known insecure default value - generate a secure random secret", ErrInsecureDefaultSecret, name)
+	}
+
+	return nil
+}
+
+// isInsecureDefault checks if a secret value matches known insecure defaults
+func isInsecureDefault(value string) bool {
+	insecureDefaults := []string{
+		"your-super-secret-key",
+		"your-qrcode-secret",
+		"change-in-production",
+		"secret-key",
+		"changeme",
+		"password",
+		"test",
+		"dev-only",
+	}
+
+	lowerValue := strings.ToLower(value)
+	for _, insecure := range insecureDefaults {
+		if strings.Contains(lowerValue, insecure) {
+			return true
+		}
+	}
+	return false
 }
 
 func getEnv(key, defaultValue string) string {

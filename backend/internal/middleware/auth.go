@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -65,7 +66,8 @@ type AuthConfig struct {
 	Issuer       string
 	CacheTTL     time.Duration
 	RedisClient  *redis.Client
-	Development  bool // Skip verification in development
+	Development  bool   // Skip verification in development - MUST be explicitly enabled via ALLOW_DEV_AUTH=true
+	Environment  string // Current environment (development, staging, production)
 }
 
 // JWKSCache handles caching of JWKS keys
@@ -210,6 +212,15 @@ func Auth(cfg AuthConfig) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
+		// SECURITY: Validate development mode is only used in appropriate environments
+		devModeAllowed := cfg.Development && (cfg.Environment == "development" || cfg.Environment == "test")
+		if cfg.Development && !devModeAllowed {
+			log.Error().
+				Str("environment", cfg.Environment).
+				Msg("SECURITY ALERT: Development auth mode blocked in non-development environment")
+			// Fall through to production auth - do not allow dev bypass
+		}
+
 		// Extract token from header
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -241,8 +252,14 @@ func Auth(cfg AuthConfig) gin.HandlerFunc {
 
 		var token *jwt.Token
 
-		if cfg.Development {
+		if devModeAllowed {
 			// Development mode: parse without signature verification
+			// SECURITY WARNING: This mode should ONLY be used in local development
+			log.Warn().
+				Str("environment", cfg.Environment).
+				Str("client_ip", c.ClientIP()).
+				Msg("SECURITY WARNING: Processing request with development auth mode - signatures not verified")
+
 			parser := jwt.NewParser(
 				jwt.WithIssuer(issuer),
 				jwt.WithExpirationRequired(),
@@ -298,7 +315,7 @@ func Auth(cfg AuthConfig) gin.HandlerFunc {
 		}
 
 		// Validate audience (support multiple audiences)
-		if len(cfg.Audiences) > 0 && !cfg.Development {
+		if len(cfg.Audiences) > 0 && !devModeAllowed {
 			validAudience := false
 			for _, aud := range cfg.Audiences {
 				for _, tokenAud := range claims.Audience {
@@ -343,15 +360,30 @@ func Auth(cfg AuthConfig) gin.HandlerFunc {
 }
 
 // AuthWithSimpleConfig creates auth middleware with simple string configuration (backwards compatible)
-func AuthWithSimpleConfig(auth0Domain, auth0Audience string) gin.HandlerFunc {
+// SECURITY: Development mode requires explicit opt-in via environment variable
+func AuthWithSimpleConfig(auth0Domain, auth0Audience, environment string) gin.HandlerFunc {
 	audiences := []string{}
 	if auth0Audience != "" {
 		audiences = append(audiences, auth0Audience)
 	}
+
+	// SECURITY: Development mode must be explicitly enabled and only works in development/test environments
+	// Never enable development mode based solely on empty domain
+	allowDevAuth := os.Getenv("ALLOW_DEV_AUTH") == "true"
+	isDev := (environment == "development" || environment == "test") && allowDevAuth && (auth0Domain == "" || auth0Domain == "localhost")
+
+	if isDev {
+		log.Warn().
+			Str("environment", environment).
+			Bool("allow_dev_auth", allowDevAuth).
+			Msg("SECURITY WARNING: Auth middleware running in development mode - token signatures will NOT be verified")
+	}
+
 	return Auth(AuthConfig{
 		Domain:      auth0Domain,
 		Audiences:   audiences,
-		Development: auth0Domain == "" || auth0Domain == "localhost",
+		Development: isDev,
+		Environment: environment,
 	})
 }
 

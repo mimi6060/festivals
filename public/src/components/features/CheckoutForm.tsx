@@ -3,9 +3,9 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { User, Mail, Phone, ArrowRight, Lock, CreditCard } from 'lucide-react'
+import { User, Mail, Phone, ArrowRight, Lock, CreditCard, AlertCircle } from 'lucide-react'
 import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@/components/ui'
-import { useCartStore } from '@/stores/cart'
+import { useCartStore, type CartValidationError } from '@/stores/cart'
 import { createOrder } from '@/lib/api'
 import type { CustomerInfo } from '@/types'
 
@@ -13,11 +13,54 @@ interface CheckoutFormProps {
   festivalId: string
 }
 
+// Input length limits
+const INPUT_LIMITS = {
+  firstName: 50,
+  lastName: 50,
+  email: 254,
+  phone: 20,
+}
+
+// Phone validation regex - supports international formats
+// Allows: +33 6 12 34 56 78, 0612345678, +33612345678, etc.
+const PHONE_REGEX = /^(\+?\d{1,3}[\s.-]?)?\(?\d{1,4}\)?[\s.-]?\d{1,4}[\s.-]?\d{1,4}[\s.-]?\d{0,4}$/
+
+// More strict phone validation for common formats
+function validatePhoneNumber(phone: string): { valid: boolean; message?: string } {
+  if (!phone.trim()) {
+    // Phone is optional
+    return { valid: true }
+  }
+
+  // Remove all whitespace and common separators for length check
+  const digitsOnly = phone.replace(/[\s.-]/g, '')
+  const cleanDigits = digitsOnly.replace(/^\+/, '')
+
+  // Check minimum length (at least 6 digits for a valid phone)
+  if (cleanDigits.length < 6) {
+    return { valid: false, message: 'Numero de telephone trop court' }
+  }
+
+  // Check maximum length
+  if (cleanDigits.length > 15) {
+    return { valid: false, message: 'Numero de telephone trop long' }
+  }
+
+  // Check format
+  if (!PHONE_REGEX.test(phone.trim())) {
+    return { valid: false, message: 'Format de telephone invalide' }
+  }
+
+  return { valid: true }
+}
+
 export function CheckoutForm({ festivalId }: CheckoutFormProps) {
   const router = useRouter()
-  const { items, options, clearCart } = useCartStore()
+  const { items, options, clearCart, validateCart } = useCartStore()
   const [isLoading, setIsLoading] = React.useState(false)
+  const [isValidating, setIsValidating] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [cartErrors, setCartErrors] = React.useState<CartValidationError[]>([])
   const [formData, setFormData] = React.useState<CustomerInfo>({
     email: '',
     firstName: '',
@@ -37,16 +80,33 @@ export function CheckoutForm({ festivalId }: CheckoutFormProps) {
   const validate = (): boolean => {
     const newErrors: Partial<CustomerInfo> = {}
 
+    // First name validation
     if (!formData.firstName.trim()) {
       newErrors.firstName = 'Le prenom est requis'
+    } else if (formData.firstName.trim().length > INPUT_LIMITS.firstName) {
+      newErrors.firstName = `Le prenom ne peut pas depasser ${INPUT_LIMITS.firstName} caracteres`
     }
+
+    // Last name validation
     if (!formData.lastName.trim()) {
       newErrors.lastName = 'Le nom est requis'
+    } else if (formData.lastName.trim().length > INPUT_LIMITS.lastName) {
+      newErrors.lastName = `Le nom ne peut pas depasser ${INPUT_LIMITS.lastName} caracteres`
     }
+
+    // Email validation
     if (!formData.email.trim()) {
       newErrors.email = "L'email est requis"
+    } else if (formData.email.trim().length > INPUT_LIMITS.email) {
+      newErrors.email = `L'email ne peut pas depasser ${INPUT_LIMITS.email} caracteres`
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = 'Email invalide'
+    }
+
+    // Phone validation (optional but must be valid if provided)
+    const phoneValidation = validatePhoneNumber(formData.phone)
+    if (!phoneValidation.valid) {
+      newErrors.phone = phoneValidation.message
     }
 
     setErrors(newErrors)
@@ -59,9 +119,23 @@ export function CheckoutForm({ festivalId }: CheckoutFormProps) {
     if (!validate()) return
 
     setIsLoading(true)
+    setIsValidating(true)
     setError(null)
+    setCartErrors([])
 
     try {
+      // Validate cart with server before checkout
+      const validationResult = await validateCart()
+
+      setIsValidating(false)
+
+      if (!validationResult.valid) {
+        setCartErrors(validationResult.errors)
+        setError('Certains articles de votre panier ont ete mis a jour. Veuillez verifier votre commande.')
+        setIsLoading(false)
+        return
+      }
+
       const order = await createOrder({
         festivalId,
         items: items.map((item) => ({
@@ -88,6 +162,7 @@ export function CheckoutForm({ festivalId }: CheckoutFormProps) {
       setError(err instanceof Error ? err.message : 'Une erreur est survenue')
     } finally {
       setIsLoading(false)
+      setIsValidating(false)
     }
   }
 
@@ -108,7 +183,19 @@ export function CheckoutForm({ festivalId }: CheckoutFormProps) {
               animate={{ opacity: 1, y: 0 }}
               className="p-4 rounded-lg bg-red-500/20 border border-red-500/30 text-red-300"
             >
-              {error}
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                <div>
+                  <p>{error}</p>
+                  {cartErrors.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-sm">
+                      {cartErrors.map((cartError, index) => (
+                        <li key={index}>- {cartError.message}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
             </motion.div>
           )}
 
@@ -122,6 +209,7 @@ export function CheckoutForm({ festivalId }: CheckoutFormProps) {
               error={errors.firstName}
               placeholder="Jean"
               leftIcon={<User className="h-4 w-4" />}
+              maxLength={INPUT_LIMITS.firstName}
             />
             <Input
               label="Nom"
@@ -130,6 +218,7 @@ export function CheckoutForm({ festivalId }: CheckoutFormProps) {
               onChange={handleChange}
               error={errors.lastName}
               placeholder="Dupont"
+              maxLength={INPUT_LIMITS.lastName}
             />
           </div>
 
@@ -144,6 +233,7 @@ export function CheckoutForm({ festivalId }: CheckoutFormProps) {
             placeholder="jean.dupont@email.com"
             leftIcon={<Mail className="h-4 w-4" />}
             hint="Vos billets seront envoyes a cette adresse"
+            maxLength={INPUT_LIMITS.email}
           />
 
           {/* Phone */}
@@ -153,8 +243,11 @@ export function CheckoutForm({ festivalId }: CheckoutFormProps) {
             type="tel"
             value={formData.phone}
             onChange={handleChange}
+            error={errors.phone}
             placeholder="+33 6 12 34 56 78"
             leftIcon={<Phone className="h-4 w-4" />}
+            maxLength={INPUT_LIMITS.phone}
+            hint="Format: +33 6 12 34 56 78"
           />
 
           {/* Security notice */}
@@ -175,9 +268,10 @@ export function CheckoutForm({ festivalId }: CheckoutFormProps) {
             size="lg"
             className="w-full"
             loading={isLoading}
+            disabled={isLoading || items.length === 0}
             rightIcon={<CreditCard className="h-5 w-5" />}
           >
-            Proceder au paiement
+            {isValidating ? 'Verification du panier...' : 'Proceder au paiement'}
           </Button>
 
           {/* Payment methods */}

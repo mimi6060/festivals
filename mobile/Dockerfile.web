@@ -77,8 +77,18 @@ RUN if [ ! -f /etc/nginx/nginx.conf ] || [ ! -s /etc/nginx/nginx.conf ]; then \
     echo '}' >> /etc/nginx/nginx.conf; \
     fi
 
-# Copy built web app from builder
+# Copy built web app from builder with correct permissions
 COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Create nginx user directories and set permissions
+RUN chown -R nginx:nginx /usr/share/nginx/html && \
+    chown -R nginx:nginx /var/cache/nginx && \
+    chown -R nginx:nginx /var/log/nginx && \
+    touch /var/run/nginx.pid && \
+    chown -R nginx:nginx /var/run/nginx.pid
+
+# Switch to non-root user
+USER nginx
 
 # Expose port
 EXPOSE 80

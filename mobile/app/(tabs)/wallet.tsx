@@ -161,7 +161,8 @@ export default function WalletScreen() {
 
           <TouchableOpacity
             onPress={() => {
-              // TODO: Implement support/help
+              // Navigate to support/help screen
+              router.push('/support');
             }}
             className="flex-1 bg-white rounded-xl p-4 flex-row items-center justify-center"
             activeOpacity={0.7}
@@ -363,8 +364,14 @@ export default function WalletScreen() {
             <View className="p-4 border-t border-gray-200">
               <TouchableOpacity
                 onPress={() => {
-                  // TODO: Implement report issue
+                  // Navigate to report issue screen with transaction context
                   setSelectedTransaction(null);
+                  if (selectedTransaction) {
+                    router.push({
+                      pathname: '/support/report',
+                      params: { transactionId: selectedTransaction.id }
+                    });
+                  }
                 }}
                 className="bg-gray-100 rounded-xl p-4 flex-row items-center justify-center"
               >
