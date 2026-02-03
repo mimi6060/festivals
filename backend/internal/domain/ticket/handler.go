@@ -12,11 +12,20 @@ import (
 )
 
 type Handler struct {
-	service *Service
+	service   *Service
+	qrService *QRService
 }
 
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
+}
+
+// NewHandlerWithQR creates a new ticket handler with QR code support
+func NewHandlerWithQR(service *Service, qrService *QRService) *Handler {
+	return &Handler{
+		service:   service,
+		qrService: qrService,
+	}
 }
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
@@ -36,6 +45,9 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		tickets.POST("", h.CreateTicket)
 		tickets.GET("", h.ListTickets)
 		tickets.GET("/:id", h.GetTicket)
+		tickets.GET("/:id/qr", h.GetTicketQRCode)
+		tickets.GET("/:id/qr/download", h.DownloadTicketQRCode)
+		tickets.POST("/:id/qr/regenerate", h.RegenerateTicketQRCode)
 		tickets.GET("/code/:code", h.GetTicketByCode)
 		tickets.POST("/scan", h.ScanTicket)
 		tickets.POST("/:id/transfer", h.TransferTicket)
@@ -392,6 +404,216 @@ func (h *Handler) GetTicketByCode(c *gin.Context) {
 	}
 
 	response.OK(c, ticket.ToResponse())
+}
+
+// GetTicketQRCode returns the QR code for a ticket
+// @Summary Get ticket QR code
+// @Description Get the QR code for a specific ticket as JSON with base64 encoded image
+// @Tags tickets
+// @Produce json
+// @Param id path string true "Ticket ID" format(uuid)
+// @Success 200 {object} response.Response{data=QRCodeResponse} "QR code data"
+// @Failure 400 {object} response.ErrorResponse "Invalid ticket ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Ticket not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /tickets/{id}/qr [get]
+func (h *Handler) GetTicketQRCode(c *gin.Context) {
+	if h.qrService == nil {
+		response.InternalError(c, "QR code service not configured")
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "INVALID_ID", "Invalid ticket ID", nil)
+		return
+	}
+
+	// Verify user has access to this ticket
+	userID, err := getUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "Invalid user")
+		return
+	}
+
+	// Get ticket to verify ownership
+	ticket, err := h.service.GetTicket(c.Request.Context(), id)
+	if err != nil {
+		if err == errors.ErrNotFound || err == errors.ErrTicketNotFound {
+			response.NotFound(c, "Ticket not found")
+			return
+		}
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	// Check ownership (unless user is admin/staff)
+	if ticket.UserID == nil || *ticket.UserID != userID {
+		// TODO: Add admin/staff check here
+		response.Forbidden(c, "You do not own this ticket")
+		return
+	}
+
+	// Generate QR code
+	qrResult, err := h.qrService.GenerateQRCode(c.Request.Context(), id)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, QRCodeResponse{
+		TicketID:    qrResult.TicketID,
+		TicketCode:  qrResult.TicketCode,
+		FestivalID:  qrResult.FestivalID,
+		QRImageB64:  qrResult.QRImageB64,
+		QRDataURI:   "data:image/png;base64," + qrResult.QRImageB64,
+		ExpiresAt:   qrResult.ExpiresAt.Format(time.RFC3339),
+		GeneratedAt: qrResult.GeneratedAt.Format(time.RFC3339),
+	})
+}
+
+// DownloadTicketQRCode returns the QR code as a downloadable PNG image
+// @Summary Download ticket QR code
+// @Description Download the QR code for a specific ticket as a PNG image file
+// @Tags tickets
+// @Produce png
+// @Param id path string true "Ticket ID" format(uuid)
+// @Success 200 {file} binary "PNG image"
+// @Failure 400 {object} response.ErrorResponse "Invalid ticket ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Ticket not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /tickets/{id}/qr/download [get]
+func (h *Handler) DownloadTicketQRCode(c *gin.Context) {
+	if h.qrService == nil {
+		response.InternalError(c, "QR code service not configured")
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "INVALID_ID", "Invalid ticket ID", nil)
+		return
+	}
+
+	// Verify user has access to this ticket
+	userID, err := getUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "Invalid user")
+		return
+	}
+
+	// Get ticket to verify ownership
+	ticket, err := h.service.GetTicket(c.Request.Context(), id)
+	if err != nil {
+		if err == errors.ErrNotFound || err == errors.ErrTicketNotFound {
+			response.NotFound(c, "Ticket not found")
+			return
+		}
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	// Check ownership
+	if ticket.UserID == nil || *ticket.UserID != userID {
+		response.Forbidden(c, "You do not own this ticket")
+		return
+	}
+
+	// Generate QR code
+	qrPNG, filename, err := h.qrService.GetQRCodeAsPNG(c.Request.Context(), id)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	// Set headers for file download
+	c.Header("Content-Type", "image/png")
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+	c.Header("Content-Length", strconv.Itoa(len(qrPNG)))
+
+	c.Data(http.StatusOK, "image/png", qrPNG)
+}
+
+// RegenerateTicketQRCode regenerates a new QR code for a ticket
+// @Summary Regenerate ticket QR code
+// @Description Regenerate a new QR code for a ticket with a fresh timestamp
+// @Tags tickets
+// @Produce json
+// @Param id path string true "Ticket ID" format(uuid)
+// @Success 200 {object} response.Response{data=QRCodeResponse} "New QR code data"
+// @Failure 400 {object} response.ErrorResponse "Invalid ticket ID"
+// @Failure 401 {object} response.ErrorResponse "Unauthorized"
+// @Failure 404 {object} response.ErrorResponse "Ticket not found"
+// @Failure 500 {object} response.ErrorResponse "Internal server error"
+// @Security BearerAuth
+// @Router /tickets/{id}/qr/regenerate [post]
+func (h *Handler) RegenerateTicketQRCode(c *gin.Context) {
+	if h.qrService == nil {
+		response.InternalError(c, "QR code service not configured")
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "INVALID_ID", "Invalid ticket ID", nil)
+		return
+	}
+
+	// Verify user has access to this ticket
+	userID, err := getUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "Invalid user")
+		return
+	}
+
+	// Get ticket to verify ownership
+	ticket, err := h.service.GetTicket(c.Request.Context(), id)
+	if err != nil {
+		if err == errors.ErrNotFound || err == errors.ErrTicketNotFound {
+			response.NotFound(c, "Ticket not found")
+			return
+		}
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	// Check ownership
+	if ticket.UserID == nil || *ticket.UserID != userID {
+		response.Forbidden(c, "You do not own this ticket")
+		return
+	}
+
+	// Regenerate QR code
+	qrResult, err := h.qrService.RegenerateQRCode(c.Request.Context(), id)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, QRCodeResponse{
+		TicketID:    qrResult.TicketID,
+		TicketCode:  qrResult.TicketCode,
+		FestivalID:  qrResult.FestivalID,
+		QRImageB64:  qrResult.QRImageB64,
+		QRDataURI:   "data:image/png;base64," + qrResult.QRImageB64,
+		ExpiresAt:   qrResult.ExpiresAt.Format(time.RFC3339),
+		GeneratedAt: qrResult.GeneratedAt.Format(time.RFC3339),
+	})
+}
+
+// QRCodeResponse represents the API response for a QR code
+type QRCodeResponse struct {
+	TicketID    uuid.UUID `json:"ticketId"`
+	TicketCode  string    `json:"ticketCode"`
+	FestivalID  uuid.UUID `json:"festivalId"`
+	QRImageB64  string    `json:"qrImageB64"`
+	QRDataURI   string    `json:"qrDataUri"`
+	ExpiresAt   string    `json:"expiresAt"`
+	GeneratedAt string    `json:"generatedAt"`
 }
 
 // ScanTicket validates and scans a ticket (for entry/exit)

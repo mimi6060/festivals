@@ -33,11 +33,12 @@ type FestivalInfo struct {
 
 // Service handles payment business logic
 type Service struct {
-	db             *gorm.DB
-	stripeClient   *payment.StripeClient
-	walletService  WalletService
-	festivalService FestivalService
-	baseURL        string
+	db                 *gorm.DB
+	stripeClient       *payment.StripeClient
+	walletService      WalletService
+	festivalService    FestivalService
+	ticketTypeProvider TicketTypeProvider
+	baseURL            string
 }
 
 // NewService creates a new payment service
@@ -580,4 +581,97 @@ func (s *Service) GetPaymentsByUser(ctx context.Context, userID uuid.UUID, page,
 	}
 
 	return payments, total, nil
+}
+
+// TicketTypeProvider defines the interface for getting ticket type info
+type TicketTypeProvider interface {
+	GetTicketTypePrice(ctx context.Context, ticketTypeID uuid.UUID) (int64, error)
+}
+
+// SetTicketTypeProvider sets the ticket type provider (to avoid circular dependency)
+func (s *Service) SetTicketTypeProvider(ttp TicketTypeProvider) {
+	s.ticketTypeProvider = ttp
+}
+
+// CreateTicketPaymentIntent creates a payment intent for ticket purchase
+func (s *Service) CreateTicketPaymentIntent(ctx context.Context, festivalID, userID, ticketTypeID uuid.UUID, quantity int, currency string, email string) (*PaymentIntent, error) {
+	if quantity < 1 || quantity > 10 {
+		return nil, errors.New("INVALID_QUANTITY", "Quantity must be between 1 and 10")
+	}
+
+	if currency == "" {
+		currency = "eur"
+	}
+
+	// Get ticket type price (this should be set via SetTicketTypeProvider)
+	// For now, we'll just use a placeholder amount that should be passed
+	// In a real implementation, we'd query the ticket type service
+	var ticketPrice int64 = 0
+	if s.ticketTypeProvider != nil {
+		price, err := s.ticketTypeProvider.GetTicketTypePrice(ctx, ticketTypeID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get ticket type price: %w", err)
+		}
+		ticketPrice = price
+	} else {
+		return nil, errors.New("SERVICE_UNAVAILABLE", "Ticket type service not configured")
+	}
+
+	totalAmount := ticketPrice * int64(quantity)
+	if totalAmount < 100 {
+		return nil, errors.New("MINIMUM_AMOUNT", "Minimum amount is 100 cents (1 EUR)")
+	}
+
+	// Get festival Stripe account if connected
+	var connectedAccount string
+	stripeAcct, err := s.GetStripeAccountByFestival(ctx, festivalID)
+	if err == nil && stripeAcct != nil && stripeAcct.ChargesEnabled {
+		connectedAccount = stripeAcct.StripeAccountID
+	}
+
+	// Calculate platform fee
+	platformFee := CalculatePlatformFee(totalAmount)
+
+	// Create Stripe payment intent with ticket metadata
+	result, err := s.stripeClient.CreatePaymentIntent(ctx, payment.CreatePaymentIntentParams{
+		Amount:           totalAmount,
+		Currency:         currency,
+		FestivalID:       festivalID,
+		UserID:           userID,
+		WalletID:         uuid.Nil, // No wallet for ticket purchase
+		Description:      fmt.Sprintf("Ticket purchase: %d ticket(s)", quantity),
+		CustomerEmail:    email,
+		ConnectedAccount: connectedAccount,
+		Metadata: map[string]string{
+			"ticket_type_id": ticketTypeID.String(),
+			"quantity":       fmt.Sprintf("%d", quantity),
+			"type":           "ticket_purchase",
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create payment intent: %w", err)
+	}
+
+	// Create local payment intent record
+	pi := &PaymentIntent{
+		ID:             uuid.New(),
+		StripeIntentID: result.PaymentIntentID,
+		FestivalID:     festivalID,
+		UserID:         userID,
+		WalletID:       uuid.Nil, // No wallet for ticket purchase
+		Amount:         totalAmount,
+		Currency:       currency,
+		PlatformFee:    platformFee,
+		Status:         PaymentIntentStatusPending,
+		ClientSecret:   result.ClientSecret,
+		CustomerEmail:  email,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+
+	if err := s.db.WithContext(ctx).Create(pi).Error; err != nil {
+		return nil, fmt.Errorf("failed to save payment intent: %w", err)
+	}
+
+	return pi, nil
 }

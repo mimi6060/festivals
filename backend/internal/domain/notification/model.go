@@ -10,13 +10,14 @@ import (
 type EmailTemplate string
 
 const (
-	EmailTemplateWelcome           EmailTemplate = "WELCOME"
-	EmailTemplateTicketPurchased   EmailTemplate = "TICKET_PURCHASED"
-	EmailTemplateTicketTransferred EmailTemplate = "TICKET_TRANSFERRED"
-	EmailTemplateTopUpConfirmed    EmailTemplate = "TOP_UP_CONFIRMED"
-	EmailTemplateRefundProcessed   EmailTemplate = "REFUND_PROCESSED"
-	EmailTemplatePasswordReset     EmailTemplate = "PASSWORD_RESET"
-	EmailTemplateSecurityAlert     EmailTemplate = "SECURITY_ALERT"
+	EmailTemplateWelcome             EmailTemplate = "WELCOME"
+	EmailTemplateTicketPurchased     EmailTemplate = "TICKET_PURCHASED"
+	EmailTemplateTicketConfirmation  EmailTemplate = "TICKET_CONFIRMATION"
+	EmailTemplateTicketTransferred   EmailTemplate = "TICKET_TRANSFERRED"
+	EmailTemplateTopUpConfirmed      EmailTemplate = "TOP_UP_CONFIRMED"
+	EmailTemplateRefundProcessed     EmailTemplate = "REFUND_PROCESSED"
+	EmailTemplatePasswordReset       EmailTemplate = "PASSWORD_RESET"
+	EmailTemplateSecurityAlert       EmailTemplate = "SECURITY_ALERT"
 )
 
 // IsValid checks if the template is a valid EmailTemplate
@@ -24,6 +25,7 @@ func (t EmailTemplate) IsValid() bool {
 	switch t {
 	case EmailTemplateWelcome,
 		EmailTemplateTicketPurchased,
+		EmailTemplateTicketConfirmation,
 		EmailTemplateTicketTransferred,
 		EmailTemplateTopUpConfirmed,
 		EmailTemplateRefundProcessed,
@@ -42,13 +44,14 @@ func (t EmailTemplate) String() string {
 // GetSubject returns the default subject for each template type
 func (t EmailTemplate) GetSubject() string {
 	subjects := map[EmailTemplate]string{
-		EmailTemplateWelcome:           "Welcome to Festivals!",
-		EmailTemplateTicketPurchased:   "Your Ticket Purchase Confirmation",
-		EmailTemplateTicketTransferred: "Ticket Transfer Notification",
-		EmailTemplateTopUpConfirmed:    "Wallet Top-Up Confirmation",
-		EmailTemplateRefundProcessed:   "Refund Processed",
-		EmailTemplatePasswordReset:     "Password Reset Request",
-		EmailTemplateSecurityAlert:     "Security Alert - Action Required",
+		EmailTemplateWelcome:            "Welcome to Festivals!",
+		EmailTemplateTicketPurchased:    "Your Ticket Purchase Confirmation",
+		EmailTemplateTicketConfirmation: "Your Festival Ticket is Ready!",
+		EmailTemplateTicketTransferred:  "Ticket Transfer Notification",
+		EmailTemplateTopUpConfirmed:     "Wallet Top-Up Confirmation",
+		EmailTemplateRefundProcessed:    "Refund Processed",
+		EmailTemplatePasswordReset:      "Password Reset Request",
+		EmailTemplateSecurityAlert:      "Security Alert - Action Required",
 	}
 	if subject, ok := subjects[t]; ok {
 		return subject
@@ -59,13 +62,14 @@ func (t EmailTemplate) GetSubject() string {
 // GetTemplatePath returns the file path for the template
 func (t EmailTemplate) GetTemplatePath() string {
 	paths := map[EmailTemplate]string{
-		EmailTemplateWelcome:           "welcome.html",
-		EmailTemplateTicketPurchased:   "ticket_purchase.html",
-		EmailTemplateTicketTransferred: "ticket_transfer.html",
-		EmailTemplateTopUpConfirmed:    "topup_confirmation.html",
-		EmailTemplateRefundProcessed:   "refund_processed.html",
-		EmailTemplatePasswordReset:     "password_reset.html",
-		EmailTemplateSecurityAlert:     "security_alert.html",
+		EmailTemplateWelcome:            "welcome.html",
+		EmailTemplateTicketPurchased:    "ticket_purchase.html",
+		EmailTemplateTicketConfirmation: "ticket_confirmation.html",
+		EmailTemplateTicketTransferred:  "ticket_transfer.html",
+		EmailTemplateTopUpConfirmed:     "topup_confirmation.html",
+		EmailTemplateRefundProcessed:    "refund_processed.html",
+		EmailTemplatePasswordReset:      "password_reset.html",
+		EmailTemplateSecurityAlert:      "security_alert.html",
 	}
 	if path, ok := paths[t]; ok {
 		return path
@@ -250,6 +254,54 @@ type TicketPurchaseEmailData struct {
 	FestivalVenue  string
 	TicketURL      string
 	QRCodeData     string
+}
+
+// TicketConfirmationEmailData contains data for the ticket confirmation email template with QR code
+type TicketConfirmationEmailData struct {
+	// User info
+	UserName      string
+	HolderName    string
+
+	// Festival info
+	FestivalName   string
+	FestivalDate   string
+	FestivalVenue  string
+	LogoURL        string
+	PrimaryColor   string
+	SecondaryColor string
+
+	// Ticket info
+	TicketType     string
+	TicketCode     string
+	Quantity       int
+	Benefits       []string
+	AllowsReentry  bool
+
+	// QR Code
+	QRCodeDataURI  string // Base64 data URI for inline embedding (data:image/png;base64,...)
+	QRCodeB64      string // Raw base64 string (for attachments)
+
+	// Purchase info
+	TotalAmount    string
+	PurchaseDate   string
+	OrderReference string
+
+	// Validity
+	ValidFrom      string
+	ValidUntil     string
+	GatesOpenTime  string
+
+	// Practical info
+	ParkingInfo    string
+	TransportInfo  string
+
+	// Links
+	TicketURL      string
+	CalendarURL    string
+	WebsiteURL     string
+	FacebookURL    string
+	InstagramURL   string
+	SupportEmail   string
 }
 
 // TicketTransferEmailData contains data for the ticket transfer email template

@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mimi6060/festivals/backend/internal/config"
 	"github.com/mimi6060/festivals/backend/internal/domain/festival"
+	"github.com/mimi6060/festivals/backend/internal/domain/payment"
 	"github.com/mimi6060/festivals/backend/internal/domain/product"
 	"github.com/mimi6060/festivals/backend/internal/domain/realtime"
 	"github.com/mimi6060/festivals/backend/internal/domain/stand"
@@ -18,6 +19,7 @@ import (
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/cache"
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/database"
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/monitoring"
+	stripepay "github.com/mimi6060/festivals/backend/internal/infrastructure/payment"
 	"github.com/mimi6060/festivals/backend/internal/infrastructure/websocket"
 	"github.com/mimi6060/festivals/backend/internal/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -156,17 +158,50 @@ func main() {
 	standRepo := stand.NewRepository(db)
 	productRepo := product.NewRepository(db)
 
+	// Initialize Stripe client
+	var stripeClient *stripepay.StripeClient
+	if cfg.StripeSecretKey != "" {
+		stripeClient = stripepay.NewStripeClient(cfg.StripeSecretKey, cfg.StripeWebhookSecret)
+		if cfg.StripePlatformFee > 0 {
+			stripeClient.SetPlatformFeePercent(cfg.StripePlatformFee)
+		}
+		log.Info().Msg("Stripe client initialized")
+	} else {
+		log.Warn().Msg("Stripe not configured - payment features disabled")
+	}
+
 	// Initialize services
 	festivalService := festival.NewService(festivalRepo, db)
 	walletService := wallet.NewService(walletRepo, cfg.JWTSecret)
 	standService := stand.NewService(standRepo)
 	productService := product.NewService(productRepo)
 
+	// Initialize payment service (if Stripe is configured)
+	var paymentHandler *payment.Handler
+	if stripeClient != nil {
+		baseURL := "http://localhost:" + cfg.Port
+		if cfg.Environment == "production" {
+			baseURL = "https://api.festivals.io" // Update with actual production URL
+		}
+		paymentService := payment.NewService(db, stripeClient, baseURL)
+		paymentService.SetWalletService(walletService)
+		paymentHandler = payment.NewHandler(paymentService, stripeClient)
+		log.Info().Msg("Payment service initialized")
+	}
+
 	// Initialize handlers
 	festivalHandler := festival.NewHandler(festivalService)
 	walletHandler := wallet.NewHandler(walletService)
 	standHandler := stand.NewHandler(standService)
 	productHandler := product.NewHandler(productService)
+
+	// Webhook routes (no auth required, signature verification done in handler)
+	webhooks := router.Group("/webhooks")
+	{
+		if paymentHandler != nil {
+			paymentHandler.RegisterWebhookRoutes(webhooks)
+		}
+	}
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
@@ -190,6 +225,11 @@ func main() {
 
 			// Wallet routes (user)
 			walletHandler.RegisterRoutes(protected)
+
+			// Payment routes (Stripe)
+			if paymentHandler != nil {
+				paymentHandler.RegisterRoutes(protected)
+			}
 
 			// Festival-scoped routes (requires tenant middleware)
 			festivalScoped := protected.Group("/festivals/:id")

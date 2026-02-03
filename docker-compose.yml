@@ -140,6 +140,42 @@ services:
       - festivals-network
 
   # ============================================================================
+  # PUBLIC TICKETING WEBSITE
+  # ============================================================================
+  # Next.js public-facing ticketing website
+  public:
+    build:
+      context: ./public
+      dockerfile: Dockerfile.dev
+    ports:
+      - "${PUBLIC_PORT:-3001}:3001"
+    environment:
+      # Environment
+      - NODE_ENV=${NODE_ENV:-development}
+
+      # API URLs
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+      - API_URL=http://api:8080
+
+      # Festival Configuration
+      - NEXT_PUBLIC_FESTIVAL_ID=${DEFAULT_FESTIVAL_ID:-}
+      - NEXT_PUBLIC_SITE_URL=${PUBLIC_SITE_URL:-http://localhost:3001}
+      - NEXT_PUBLIC_FESTIVAL_NAME=${FESTIVAL_NAME:-Festival 2026}
+
+      # Stripe (public key only)
+      - NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY:-}
+
+    volumes:
+      - ./public:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - festivals-network
+
+  # ============================================================================
   # NGINX REVERSE PROXY
   # ============================================================================
   # Optional nginx proxy for SSL termination and routing

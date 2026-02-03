@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"time"
@@ -151,6 +152,130 @@ func (s *Service) SendSecurityAlertEmail(ctx context.Context, userID *uuid.UUID,
 	return s.sendEmail(ctx, userID, toEmail, EmailTemplateSecurityAlert, data, meta)
 }
 
+// SendTicketConfirmationEmail sends a ticket confirmation email with QR code
+func (s *Service) SendTicketConfirmationEmail(ctx context.Context, userID uuid.UUID, toEmail string, data TicketConfirmationEmailData) error {
+	// Set default support email if not provided
+	if data.SupportEmail == "" {
+		data.SupportEmail = s.supportEmail
+	}
+
+	// Set default ticket URL if not provided
+	if data.TicketURL == "" {
+		data.TicketURL = fmt.Sprintf("%s/tickets/%s", s.baseURL, data.TicketCode)
+	}
+
+	meta := &EmailLogMeta{
+		FestivalName: data.FestivalName,
+		TicketID:     data.TicketCode,
+	}
+
+	return s.sendEmail(ctx, &userID, toEmail, EmailTemplateTicketConfirmation, data, meta)
+}
+
+// SendTicketConfirmationEmailWithAttachment sends a ticket confirmation email with QR code as attachment
+func (s *Service) SendTicketConfirmationEmailWithAttachment(ctx context.Context, userID uuid.UUID, toEmail string, data TicketConfirmationEmailData, qrCodePNG []byte) error {
+	// Set default support email if not provided
+	if data.SupportEmail == "" {
+		data.SupportEmail = s.supportEmail
+	}
+
+	// Set default ticket URL if not provided
+	if data.TicketURL == "" {
+		data.TicketURL = fmt.Sprintf("%s/tickets/%s", s.baseURL, data.TicketCode)
+	}
+
+	// Check user preferences
+	shouldSend, err := s.ShouldSendEmail(ctx, userID, EmailTemplateTicketConfirmation)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to check email preferences, sending anyway")
+	} else if !shouldSend {
+		log.Info().
+			Str("template", string(EmailTemplateTicketConfirmation)).
+			Str("to", toEmail).
+			Msg("Email not sent due to user preferences")
+		return nil
+	}
+
+	// Render HTML template
+	htmlBody, err := s.renderTemplate(EmailTemplateTicketConfirmation, data)
+	if err != nil {
+		return fmt.Errorf("failed to render email template: %w", err)
+	}
+
+	// Generate plain text version
+	textBody := s.generatePlainText(EmailTemplateTicketConfirmation, data)
+
+	// Create email log entry
+	now := time.Now()
+	emailLog := &EmailLog{
+		ID:        uuid.New(),
+		UserID:    &userID,
+		ToEmail:   toEmail,
+		Template:  EmailTemplateTicketConfirmation,
+		Subject:   EmailTemplateTicketConfirmation.GetSubject(),
+		Status:    EmailLogStatusPending,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Metadata: EmailLogMeta{
+			FestivalName: data.FestivalName,
+			TicketID:     data.TicketCode,
+		},
+	}
+
+	if err := s.repo.CreateEmailLog(ctx, emailLog); err != nil {
+		log.Error().Err(err).Msg("Failed to create email log")
+	}
+
+	// Prepare attachment
+	attachments := []email.Attachment{
+		{
+			Name:        fmt.Sprintf("ticket-%s-qr.png", data.TicketCode),
+			ContentType: "image/png",
+			Data:        encodeToBase64(qrCodePNG),
+		},
+	}
+
+	// Send email with attachment
+	req := email.SendEmailRequest{
+		To:          []string{toEmail},
+		Subject:     EmailTemplateTicketConfirmation.GetSubject(),
+		HTMLBody:    htmlBody,
+		TextBody:    textBody,
+		Attachments: attachments,
+	}
+
+	result, err := s.emailClient.SendEmailWithAttachments(ctx, req)
+	if err != nil {
+		emailLog.Status = EmailLogStatusFailed
+		emailLog.Error = err.Error()
+		emailLog.UpdatedAt = time.Now()
+		_ = s.repo.UpdateEmailLog(ctx, emailLog)
+
+		return errors.Wrap(err, "EMAIL_SEND_FAILED", "Failed to send ticket confirmation email")
+	}
+
+	// Update log with success
+	emailLog.Status = EmailLogStatusSent
+	emailLog.MessageID = result.MessageID
+	emailLog.SentAt = &now
+	emailLog.UpdatedAt = time.Now()
+	_ = s.repo.UpdateEmailLog(ctx, emailLog)
+
+	log.Info().
+		Str("template", string(EmailTemplateTicketConfirmation)).
+		Str("to", toEmail).
+		Str("ticketCode", data.TicketCode).
+		Str("messageId", result.MessageID).
+		Msg("Ticket confirmation email sent successfully")
+
+	return nil
+}
+
+// encodeToBase64 encodes bytes to base64 string
+func encodeToBase64(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
+}
+
 // GetUserPreferences retrieves or creates default notification preferences for a user
 func (s *Service) GetUserPreferences(ctx context.Context, userID uuid.UUID) (*NotificationPreferences, error) {
 	prefs, err := s.repo.GetPreferencesByUserID(ctx, userID)
@@ -261,7 +386,7 @@ func (s *Service) ShouldSendEmail(ctx context.Context, userID uuid.UUID, templat
 	case EmailTemplateWelcome, EmailTemplatePasswordReset, EmailTemplateSecurityAlert:
 		// Security/account emails are always sent if email is enabled
 		return prefs.SecurityAlerts, nil
-	case EmailTemplateTicketPurchased, EmailTemplateTicketTransferred:
+	case EmailTemplateTicketPurchased, EmailTemplateTicketConfirmation, EmailTemplateTicketTransferred:
 		return prefs.TicketReminders, nil
 	case EmailTemplateTopUpConfirmed, EmailTemplateRefundProcessed:
 		return prefs.TransactionAlerts, nil
@@ -295,6 +420,32 @@ func (s *Service) SendTestEmail(ctx context.Context, template EmailTemplate, toE
 			FestivalDate:  "July 15-17, 2024",
 			FestivalVenue: "Festival Park, Berlin",
 			TicketURL:     fmt.Sprintf("%s/tickets/TEST-TICKET-123", s.baseURL),
+		}
+	case EmailTemplateTicketConfirmation:
+		data = TicketConfirmationEmailData{
+			UserName:       "Test User",
+			HolderName:     "Test User",
+			FestivalName:   "Summer Festival 2024",
+			FestivalDate:   "July 15-17, 2024",
+			FestivalVenue:  "Festival Park, Berlin",
+			PrimaryColor:   "#6366f1",
+			SecondaryColor: "#8b5cf6",
+			TicketType:     "VIP Pass",
+			TicketCode:     "TEST-TICKET-123",
+			Quantity:       1,
+			Benefits:       []string{"Priority Entry", "VIP Lounge Access", "Free Drink"},
+			AllowsReentry:  true,
+			QRCodeDataURI:  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+			TotalAmount:    "150.00 EUR",
+			PurchaseDate:   time.Now().Format("January 2, 2006"),
+			OrderReference: "ORD-TEST-123",
+			ValidFrom:      "July 15, 2024 10:00",
+			ValidUntil:     "July 17, 2024 23:59",
+			GatesOpenTime:  "10:00 AM",
+			ParkingInfo:    "Free parking available on-site",
+			TransportInfo:  "Bus line 42 stops at the main entrance",
+			TicketURL:      fmt.Sprintf("%s/tickets/TEST-TICKET-123", s.baseURL),
+			SupportEmail:   s.supportEmail,
 		}
 	case EmailTemplateTicketTransferred:
 		data = TicketTransferEmailData{
@@ -463,6 +614,40 @@ func (s *Service) generatePlainText(template EmailTemplate, data interface{}) st
 		if d, ok := data.(TicketPurchaseEmailData); ok {
 			return fmt.Sprintf("Hi %s,\n\nYour ticket purchase is confirmed!\n\nFestival: %s\nTicket: %s\nCode: %s\nTotal: %s\n\nView your ticket at: %s",
 				d.UserName, d.FestivalName, d.TicketType, d.TicketCode, d.TotalAmount, d.TicketURL)
+		}
+	case EmailTemplateTicketConfirmation:
+		if d, ok := data.(TicketConfirmationEmailData); ok {
+			reentryInfo := "No re-entry allowed"
+			if d.AllowsReentry {
+				reentryInfo = "Re-entry is permitted"
+			}
+			return fmt.Sprintf("Hi %s,\n\nYour ticket for %s is ready!\n\n"+
+				"TICKET DETAILS\n"+
+				"--------------\n"+
+				"Festival: %s\n"+
+				"Ticket Type: %s\n"+
+				"Ticket Code: %s\n"+
+				"Date: %s\n"+
+				"Venue: %s\n\n"+
+				"PURCHASE SUMMARY\n"+
+				"----------------\n"+
+				"Quantity: %d\n"+
+				"Total: %s\n"+
+				"Order Reference: %s\n\n"+
+				"PRACTICAL INFO\n"+
+				"--------------\n"+
+				"Gates Open: %s\n"+
+				"Valid From: %s\n"+
+				"Valid Until: %s\n"+
+				"%s\n\n"+
+				"View your ticket with QR code at: %s\n\n"+
+				"IMPORTANT: Save your QR code! You'll need it to enter the festival.\n\n"+
+				"Questions? Contact us at %s",
+				d.UserName, d.FestivalName,
+				d.FestivalName, d.TicketType, d.TicketCode, d.FestivalDate, d.FestivalVenue,
+				d.Quantity, d.TotalAmount, d.OrderReference,
+				d.GatesOpenTime, d.ValidFrom, d.ValidUntil, reentryInfo,
+				d.TicketURL, d.SupportEmail)
 		}
 	case EmailTemplateTicketTransferred:
 		if d, ok := data.(TicketTransferEmailData); ok {

@@ -25,8 +25,14 @@ type Config struct {
 	// JWT/Security
 	JWTSecret string
 
+	// QR Code
+	QRCodeSecret string
+	QRCodeSize   int
+
 	// Stripe
-	StripeSecretKey string
+	StripeSecretKey      string
+	StripeWebhookSecret  string
+	StripePlatformFee    int64 // Platform fee in basis points (100 = 1%)
 
 	// Storage
 	MinioEndpoint  string
@@ -85,8 +91,14 @@ func Load() (*Config, error) {
 		// JWT/Security
 		JWTSecret: getEnv("JWT_SECRET", "your-super-secret-key-change-in-production"),
 
+		// QR Code
+		QRCodeSecret: getEnv("QRCODE_SECRET", "your-qrcode-secret-key-change-in-production"),
+		QRCodeSize:   getEnvInt("QRCODE_SIZE", 256),
+
 		// Stripe
-		StripeSecretKey: getEnv("STRIPE_SECRET_KEY", ""),
+		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
+		StripeWebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		StripePlatformFee:   int64(getEnvInt("STRIPE_PLATFORM_FEE", 100)), // Default 1%
 
 		// Storage
 		MinioEndpoint:  getEnv("MINIO_ENDPOINT", "localhost:9000"),

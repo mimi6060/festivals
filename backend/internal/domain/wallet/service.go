@@ -342,3 +342,50 @@ func (s *Service) UnfreezeWallet(ctx context.Context, walletID uuid.UUID) (*Wall
 
 	return wallet, nil
 }
+
+// TopUpFromPayment adds funds to a wallet from a successful Stripe payment
+// This method is called by the payment service when a payment is confirmed
+func (s *Service) TopUpFromPayment(ctx context.Context, walletID uuid.UUID, amount int64, reference string) error {
+	wallet, err := s.repo.GetWalletByID(ctx, walletID)
+	if err != nil {
+		return fmt.Errorf("failed to get wallet: %w", err)
+	}
+	if wallet == nil {
+		return errors.ErrWalletNotFound
+	}
+
+	if wallet.Status != WalletStatusActive {
+		return errors.ErrWalletFrozen
+	}
+
+	// Create transaction
+	tx := &Transaction{
+		ID:            uuid.New(),
+		WalletID:      walletID,
+		Type:          TransactionTypeTopUp,
+		Amount:        amount,
+		BalanceBefore: wallet.Balance,
+		BalanceAfter:  wallet.Balance + amount,
+		Reference:     reference,
+		Metadata: TransactionMeta{
+			PaymentMethod: "stripe",
+			Description:   "Stripe payment: " + reference,
+		},
+		Status:    TransactionStatusCompleted,
+		CreatedAt: time.Now(),
+	}
+
+	// Update wallet balance
+	wallet.Balance += amount
+	wallet.UpdatedAt = time.Now()
+
+	if err := s.repo.UpdateWallet(ctx, wallet); err != nil {
+		return fmt.Errorf("failed to update wallet balance: %w", err)
+	}
+
+	if err := s.repo.CreateTransaction(ctx, tx); err != nil {
+		return fmt.Errorf("failed to create transaction: %w", err)
+	}
+
+	return nil
+}
