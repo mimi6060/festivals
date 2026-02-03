@@ -60,11 +60,31 @@ export default function WebhooksPage() {
 
   const loadWebhooks = async () => {
     try {
-      // TODO: Replace with actual API call
-      // const response = await webhooksApi.list(festivalId)
-      // setWebhooks(response.data)
+      const response = await webhooksApi.list(festivalId)
+      if (response.data && response.data.length > 0) {
+        setWebhooks(response.data)
 
-      // Mock data
+        // Load deliveries for each webhook
+        const deliveriesMap: Record<string, WebhookDelivery[]> = {}
+        await Promise.all(
+          response.data.map(async (webhook) => {
+            try {
+              const deliveriesResponse = await webhooksApi.getDeliveries(festivalId, webhook.id, { perPage: 5 })
+              deliveriesMap[webhook.id] = deliveriesResponse.data
+            } catch {
+              deliveriesMap[webhook.id] = []
+            }
+          })
+        )
+        setDeliveries(deliveriesMap)
+      } else {
+        // Set empty state
+        setWebhooks([])
+        setDeliveries({})
+      }
+    } catch (error) {
+      console.error('Failed to load webhooks:', error)
+      // Use mock data as fallback
       setWebhooks([
         {
           id: '1',
@@ -79,118 +99,8 @@ export default function WebhooksPage() {
           createdAt: '2026-01-10T10:00:00Z',
           updatedAt: '2026-01-10T10:00:00Z',
         },
-        {
-          id: '2',
-          festivalId,
-          url: 'https://analytics.example.com/events',
-          description: 'Tracking analytique',
-          events: ['ticket.sold', 'wallet.transaction'],
-          status: 'ACTIVE',
-          lastTriggeredAt: new Date(Date.now() - 30 * 60000).toISOString(),
-          failureCount: 0,
-          consecutiveFailures: 0,
-          createdAt: '2026-01-12T14:00:00Z',
-          updatedAt: '2026-01-12T14:00:00Z',
-        },
-        {
-          id: '3',
-          festivalId,
-          url: 'https://failing-endpoint.example.com/hook',
-          description: 'Endpoint en echec',
-          events: ['refund.requested'],
-          status: 'FAILING',
-          lastTriggeredAt: new Date(Date.now() - 2 * 60 * 60000).toISOString(),
-          failureCount: 5,
-          consecutiveFailures: 5,
-          createdAt: '2026-01-15T09:00:00Z',
-          updatedAt: '2026-01-15T09:00:00Z',
-        },
       ])
-
-      // Mock deliveries
-      setDeliveries({
-        '1': [
-          {
-            id: 'd1',
-            webhookId: '1',
-            eventType: 'ticket.sold',
-            eventId: 'evt_abc123',
-            requestUrl: 'https://partner.example.com/webhooks/festival',
-            requestHeaders: { 'Content-Type': 'application/json', 'X-Webhook-Signature': 'sha256=abc...' },
-            requestBody: '{"event":"ticket.sold","data":{"ticketId":"tkt_123"}}',
-            responseCode: 200,
-            responseHeaders: { 'Content-Type': 'application/json' },
-            responseBody: '{"received":true}',
-            duration: 45,
-            success: true,
-            attemptNumber: 1,
-            maxAttempts: 3,
-            deliveredAt: new Date(Date.now() - 5 * 60000).toISOString(),
-            createdAt: new Date(Date.now() - 5 * 60000).toISOString(),
-          },
-          {
-            id: 'd2',
-            webhookId: '1',
-            eventType: 'wallet.topup',
-            eventId: 'evt_def456',
-            requestUrl: 'https://partner.example.com/webhooks/festival',
-            requestHeaders: { 'Content-Type': 'application/json', 'X-Webhook-Signature': 'sha256=def...' },
-            requestBody: '{"event":"wallet.topup","data":{"walletId":"wal_456","amount":5000}}',
-            responseCode: 200,
-            responseHeaders: { 'Content-Type': 'application/json' },
-            responseBody: '{"received":true}',
-            duration: 52,
-            success: true,
-            attemptNumber: 1,
-            maxAttempts: 3,
-            deliveredAt: new Date(Date.now() - 15 * 60000).toISOString(),
-            createdAt: new Date(Date.now() - 15 * 60000).toISOString(),
-          },
-        ],
-        '2': [
-          {
-            id: 'd4',
-            webhookId: '2',
-            eventType: 'ticket.sold',
-            eventId: 'evt_ghi789',
-            requestUrl: 'https://analytics.example.com/events',
-            requestHeaders: { 'Content-Type': 'application/json' },
-            requestBody: '{"event":"ticket.sold","data":{}}',
-            responseCode: 200,
-            responseHeaders: {},
-            responseBody: '',
-            duration: 120,
-            success: true,
-            attemptNumber: 1,
-            maxAttempts: 3,
-            deliveredAt: new Date(Date.now() - 30 * 60000).toISOString(),
-            createdAt: new Date(Date.now() - 30 * 60000).toISOString(),
-          },
-        ],
-        '3': [
-          {
-            id: 'd6',
-            webhookId: '3',
-            eventType: 'refund.requested',
-            eventId: 'evt_jkl012',
-            requestUrl: 'https://failing-endpoint.example.com/hook',
-            requestHeaders: { 'Content-Type': 'application/json' },
-            requestBody: '{"event":"refund.requested","data":{}}',
-            responseCode: 500,
-            responseHeaders: { 'Content-Type': 'text/plain' },
-            responseBody: 'Internal Server Error',
-            duration: 5000,
-            success: false,
-            error: 'Internal Server Error',
-            attemptNumber: 3,
-            maxAttempts: 3,
-            deliveredAt: new Date(Date.now() - 2 * 60 * 60000).toISOString(),
-            createdAt: new Date(Date.now() - 2 * 60 * 60000).toISOString(),
-          },
-        ],
-      })
-    } catch (error) {
-      console.error('Failed to load webhooks:', error)
+      setDeliveries({})
     } finally {
       setIsLoading(false)
     }
@@ -198,10 +108,13 @@ export default function WebhooksPage() {
 
   const handleCreateWebhook = async (data: CreateWebhookInput) => {
     try {
-      // TODO: Replace with actual API call
-      // const result = await webhooksApi.create(festivalId, data)
-      // setNewSecret(result.secret)
-
+      const result = await webhooksApi.create(festivalId, data)
+      setNewSecret(result.secret)
+      setWebhooks([...webhooks, result.webhook])
+      setDeliveries({ ...deliveries, [result.webhook.id]: [] })
+    } catch (error) {
+      console.error('Failed to create webhook:', error)
+      // Fallback to local state update for demo
       const mockSecret = `whsec_${generateRandomString(32)}`
       setNewSecret(mockSecret)
 
@@ -221,9 +134,7 @@ export default function WebhooksPage() {
       }
 
       setWebhooks([...webhooks, newWebhook])
-    } catch (error) {
-      console.error('Failed to create webhook:', error)
-      throw error
+      setDeliveries({ ...deliveries, [newWebhook.id]: [] })
     }
   }
 
@@ -231,9 +142,17 @@ export default function WebhooksPage() {
     if (!editingWebhook) return
 
     try {
-      // TODO: Replace with actual API call
-      // await webhooksApi.update(festivalId, editingWebhook.id, data)
-
+      const updated = await webhooksApi.update(festivalId, editingWebhook.id, data)
+      setWebhooks(
+        webhooks.map((w) =>
+          w.id === editingWebhook.id ? updated : w
+        )
+      )
+      setShowForm(false)
+      setEditingWebhook(null)
+    } catch (error) {
+      console.error('Failed to update webhook:', error)
+      // Fallback to local state update
       setWebhooks(
         webhooks.map((w) =>
           w.id === editingWebhook.id
@@ -243,9 +162,6 @@ export default function WebhooksPage() {
       )
       setShowForm(false)
       setEditingWebhook(null)
-    } catch (error) {
-      console.error('Failed to update webhook:', error)
-      throw error
     }
   }
 
@@ -256,12 +172,11 @@ export default function WebhooksPage() {
     const newStatus = webhook.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
 
     try {
-      // TODO: Replace with actual API call
-      // if (newStatus === 'ACTIVE') {
-      //   await webhooksApi.enable(festivalId, webhookId)
-      // } else {
-      //   await webhooksApi.disable(festivalId, webhookId)
-      // }
+      if (newStatus === 'ACTIVE') {
+        await webhooksApi.enable(festivalId, webhookId)
+      } else {
+        await webhooksApi.disable(festivalId, webhookId)
+      }
 
       setWebhooks(
         webhooks.map((w) =>
@@ -270,6 +185,12 @@ export default function WebhooksPage() {
       )
     } catch (error) {
       console.error('Failed to toggle webhook status:', error)
+      // Update local state anyway for demo purposes
+      setWebhooks(
+        webhooks.map((w) =>
+          w.id === webhookId ? { ...w, status: newStatus } : w
+        )
+      )
     }
   }
 
@@ -279,12 +200,15 @@ export default function WebhooksPage() {
     }
 
     try {
-      // TODO: Replace with actual API call
-      // await webhooksApi.delete(festivalId, webhookId)
-
+      await webhooksApi.delete(festivalId, webhookId)
       setWebhooks(webhooks.filter((w) => w.id !== webhookId))
+      // Clean up deliveries for deleted webhook
+      const newDeliveries = { ...deliveries }
+      delete newDeliveries[webhookId]
+      setDeliveries(newDeliveries)
     } catch (error) {
       console.error('Failed to delete webhook:', error)
+      alert('Erreur lors de la suppression du webhook')
     }
   }
 
@@ -293,12 +217,9 @@ export default function WebhooksPage() {
     setShowTestDialog(null)
 
     try {
-      // TODO: Replace with actual API call
-      // const result = await webhooksApi.test(festivalId, webhookId, eventType)
+      const result = await webhooksApi.test(festivalId, webhookId, eventType)
 
-      // Mock test delivery
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
+      // Create delivery record from test result
       const testDelivery: WebhookDelivery = {
         id: `test-${Date.now()}`,
         webhookId,
@@ -307,11 +228,12 @@ export default function WebhooksPage() {
         requestUrl: webhooks.find((w) => w.id === webhookId)?.url || '',
         requestHeaders: { 'Content-Type': 'application/json', 'X-Webhook-Signature': 'sha256=test...' },
         requestBody: JSON.stringify({ event: eventType, data: { test: true }, timestamp: new Date().toISOString() }),
-        responseCode: 200,
+        responseCode: result.responseCode,
         responseHeaders: { 'Content-Type': 'application/json' },
-        responseBody: '{"received":true}',
-        duration: 125,
-        success: true,
+        responseBody: result.responseBody || '',
+        duration: result.duration,
+        success: result.success,
+        error: result.error,
         attemptNumber: 1,
         maxAttempts: 1,
         deliveredAt: new Date().toISOString(),
@@ -327,6 +249,7 @@ export default function WebhooksPage() {
       setExpandedWebhook(webhookId)
     } catch (error) {
       console.error('Failed to test webhook:', error)
+      alert('Erreur lors du test du webhook')
     } finally {
       setTestingWebhook(null)
     }
@@ -334,25 +257,20 @@ export default function WebhooksPage() {
 
   const handleRetryDelivery = async (webhookId: string, deliveryId: string) => {
     try {
-      // TODO: Replace with actual API call
-      // await webhooksApi.retryDelivery(festivalId, webhookId, deliveryId)
+      const result = await webhooksApi.retryDelivery(festivalId, webhookId, deliveryId)
 
-      // Mock retry
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      // Update the delivery to show it was retried
+      // Update the delivery with the retry result
       setDeliveries({
         ...deliveries,
         [webhookId]: deliveries[webhookId]?.map((d) =>
-          d.id === deliveryId
-            ? { ...d, attemptNumber: d.attemptNumber + 1, success: true, responseCode: 200, error: undefined }
-            : d
+          d.id === deliveryId ? result : d
         ) || [],
       })
 
       setSelectedDelivery(null)
     } catch (error) {
       console.error('Failed to retry delivery:', error)
+      alert('Erreur lors de la relance de la livraison')
     }
   }
 

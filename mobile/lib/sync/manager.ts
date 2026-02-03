@@ -16,6 +16,7 @@ import {
 } from './strategies';
 import { SyncError, ConflictRecord } from './engine';
 import { ConflictData } from './conflict';
+import { logger } from '@/lib/logger';
 
 // Sync progress event
 export interface SyncProgress {
@@ -98,17 +99,17 @@ export class SyncManager {
    */
   public async initialize(): Promise<void> {
     if (this.isInitialized) {
-      console.warn('[SyncManager] Already initialized');
+      logger.syncManager.warn('Already initialized');
       return;
     }
 
-    console.log('[SyncManager] Initializing...');
+    logger.syncManager.info('Initializing...');
 
     // Sort strategies by priority
     this.strategies.sort((a, b) => a.priority - b.priority);
 
     this.isInitialized = true;
-    console.log(`[SyncManager] Initialized with ${this.strategies.length} strategies`);
+    logger.syncManager.info(`Initialized with ${this.strategies.length} strategies`);
   }
 
   /**
@@ -123,11 +124,11 @@ export class SyncManager {
     this.aggregatedErrors = [];
     const results = new Map<string, StrategyResult>();
 
-    console.log('[SyncManager] Starting full sync');
+    logger.syncManager.info('Starting full sync');
 
     for (let i = 0; i < this.strategies.length; i++) {
       if (this.isCancelled) {
-        console.log('[SyncManager] Sync cancelled');
+        logger.syncManager.info('Sync cancelled');
         break;
       }
 
@@ -143,7 +144,7 @@ export class SyncManager {
       });
 
       try {
-        console.log(`[SyncManager] Executing strategy: ${strategy.name}`);
+        logger.syncManager.debug(`Executing strategy: ${strategy.name}`);
         const result = await strategy.execute();
         results.set(strategy.name, result);
 
@@ -161,7 +162,7 @@ export class SyncManager {
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error(`[SyncManager] Strategy ${strategy.name} failed:`, errorMessage);
+        logger.syncManager.error(`Strategy ${strategy.name} failed:`, errorMessage);
 
         const syncError: SyncError = {
           code: 'STRATEGY_ERROR',
@@ -201,7 +202,7 @@ export class SyncManager {
 
     const hasUnrecoverableErrors = this.aggregatedErrors.some(e => !e.recoverable);
 
-    console.log(`[SyncManager] Full sync completed. Errors: ${this.aggregatedErrors.length}`);
+    logger.syncManager.info(`Full sync completed. Errors: ${this.aggregatedErrors.length}`);
 
     return {
       success: !hasUnrecoverableErrors,
@@ -214,7 +215,7 @@ export class SyncManager {
    * Sync transactions only (highest priority)
    */
   public async syncTransactions(): Promise<EntitySyncResult> {
-    console.log('[SyncManager] Syncing transactions');
+    logger.syncManager.debug('Syncing transactions');
     const result = await this.transactionStrategy.execute();
     return {
       syncedCount: result.syncedCount,
@@ -227,7 +228,7 @@ export class SyncManager {
    * Sync wallet balance
    */
   public async syncWallets(): Promise<EntitySyncResult> {
-    console.log('[SyncManager] Syncing wallets');
+    logger.syncManager.debug('Syncing wallets');
     const result = await this.walletStrategy.execute();
     return {
       syncedCount: result.syncedCount,
@@ -240,7 +241,7 @@ export class SyncManager {
    * Sync product catalog
    */
   public async syncProducts(): Promise<EntitySyncResult> {
-    console.log('[SyncManager] Syncing products');
+    logger.syncManager.debug('Syncing products');
     const result = await this.productStrategy.execute();
     return {
       syncedCount: result.syncedCount,
@@ -253,7 +254,7 @@ export class SyncManager {
    * Sync stand information
    */
   public async syncStands(): Promise<EntitySyncResult> {
-    console.log('[SyncManager] Syncing stands');
+    logger.syncManager.debug('Syncing stands');
     const result = await this.standStrategy.execute();
     return {
       syncedCount: result.syncedCount,
@@ -266,7 +267,7 @@ export class SyncManager {
    * Cancel ongoing sync operations
    */
   public cancel(): void {
-    console.log('[SyncManager] Cancel requested');
+    logger.syncManager.info('Cancel requested');
     this.isCancelled = true;
   }
 
@@ -360,7 +361,7 @@ export class SyncManager {
       try {
         listener(progress);
       } catch (error) {
-        console.error('[SyncManager] Error in progress listener:', error);
+        logger.syncManager.error('Error in progress listener:', error);
       }
     });
   }

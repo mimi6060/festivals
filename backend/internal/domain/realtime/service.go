@@ -13,16 +13,17 @@ import (
 
 // StatsUpdate represents real-time stats data
 type StatsUpdate struct {
-	TotalRevenue        float64 `json:"total_revenue"`
-	RevenueChange       float64 `json:"revenue_change"`
-	TicketsSold         int64   `json:"tickets_sold"`
-	TicketsUsed         int64   `json:"tickets_used"`
-	ActiveWallets       int64   `json:"active_wallets"`
-	TodayTransactions   int64   `json:"today_transactions"`
-	TransactionVolume   float64 `json:"transaction_volume"`
-	AverageWalletBalance float64 `json:"average_wallet_balance"`
-	EntriesLastHour     int64   `json:"entries_last_hour"`
-	Timestamp           time.Time `json:"timestamp"`
+	TotalRevenue         float64   `json:"total_revenue"`
+	RevenueChange        float64   `json:"revenue_change"`
+	TicketsSold          int64     `json:"tickets_sold"`
+	TicketsUsed          int64     `json:"tickets_used"`
+	ActiveWallets        int64     `json:"active_wallets"`
+	ActiveUsers          int64     `json:"active_users"`
+	TodayTransactions    int64     `json:"today_transactions"`
+	TransactionVolume    float64   `json:"transaction_volume"`
+	AverageWalletBalance float64   `json:"average_wallet_balance"`
+	EntriesLastHour      int64     `json:"entries_last_hour"`
+	Timestamp            time.Time `json:"timestamp"`
 }
 
 // Transaction represents a transaction for real-time feed
@@ -76,16 +77,25 @@ type Service struct {
 	recentTransactions   map[string][]Transaction
 	recentTransactionsMu sync.RWMutex
 	maxRecentTransactions int
+
+	// Stats broadcaster settings
+	statsBroadcastInterval time.Duration
+	stopBroadcaster        chan struct{}
+
+	// Stats provider function (can be set to fetch real stats from DB)
+	statsProvider func(festivalID string) (*StatsUpdate, error)
 }
 
 // NewService creates a new realtime service
 func NewService(hub *websocket.Hub, redisClient *redis.Client) *Service {
 	s := &Service{
-		hub:                   hub,
-		redis:                 redisClient,
-		statsCache:            make(map[string]*StatsUpdate),
-		recentTransactions:    make(map[string][]Transaction),
-		maxRecentTransactions: 50,
+		hub:                    hub,
+		redis:                  redisClient,
+		statsCache:             make(map[string]*StatsUpdate),
+		recentTransactions:     make(map[string][]Transaction),
+		maxRecentTransactions:  50,
+		statsBroadcastInterval: 5 * time.Second,
+		stopBroadcaster:        make(chan struct{}),
 	}
 
 	// Start background stats broadcaster if redis is available
@@ -93,7 +103,89 @@ func NewService(hub *websocket.Hub, redisClient *redis.Client) *Service {
 		go s.subscribeToRedisUpdates()
 	}
 
+	// Start periodic stats broadcaster
+	go s.runPeriodicStatsBroadcaster()
+
 	return s
+}
+
+// SetStatsProvider sets a function to fetch real stats from database
+func (s *Service) SetStatsProvider(provider func(festivalID string) (*StatsUpdate, error)) {
+	s.statsProvider = provider
+}
+
+// SetStatsBroadcastInterval sets the interval for periodic stats broadcasting
+func (s *Service) SetStatsBroadcastInterval(interval time.Duration) {
+	s.statsBroadcastInterval = interval
+}
+
+// runPeriodicStatsBroadcaster broadcasts stats to all connected festivals periodically
+func (s *Service) runPeriodicStatsBroadcaster() {
+	ticker := time.NewTicker(s.statsBroadcastInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.broadcastAllFestivalStats()
+		case <-s.stopBroadcaster:
+			return
+		}
+	}
+}
+
+// broadcastAllFestivalStats broadcasts stats to all connected festivals
+func (s *Service) broadcastAllFestivalStats() {
+	// Get all festivals with active connections
+	hubStats := s.hub.GetStats()
+	festivalsRaw, ok := hubStats["festivals"]
+	if !ok {
+		return
+	}
+
+	festivals, ok := festivalsRaw.(map[string]int)
+	if !ok {
+		return
+	}
+
+	for festivalID, clientCount := range festivals {
+		if clientCount == 0 {
+			continue
+		}
+
+		var stats *StatsUpdate
+
+		// Try to get stats from provider first
+		if s.statsProvider != nil {
+			var err error
+			stats, err = s.statsProvider(festivalID)
+			if err != nil {
+				log.Debug().Err(err).
+					Str("festival_id", festivalID).
+					Msg("Failed to fetch stats from provider, using cache")
+			}
+		}
+
+		// Fall back to cache
+		if stats == nil {
+			stats = s.GetCachedStats(festivalID)
+		}
+
+		// If we have stats, broadcast them
+		if stats != nil {
+			stats.Timestamp = time.Now()
+			if err := s.hub.BroadcastStats(festivalID, stats); err != nil {
+				log.Error().Err(err).
+					Str("festival_id", festivalID).
+					Msg("Failed to broadcast periodic stats")
+			}
+		}
+	}
+}
+
+// Stop stops the service and all background goroutines
+func (s *Service) Stop() {
+	close(s.stopBroadcaster)
 }
 
 // subscribeToRedisUpdates listens for updates from Redis pub/sub
@@ -264,6 +356,7 @@ func (s *Service) SimulateStatsUpdate(festivalID string) {
 		TicketsSold:          2500,
 		TicketsUsed:          1850,
 		ActiveWallets:        1650,
+		ActiveUsers:          1423,
 		TodayTransactions:    450,
 		TransactionVolume:    8750.00,
 		AverageWalletBalance: 45.30,

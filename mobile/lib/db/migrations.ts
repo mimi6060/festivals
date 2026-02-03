@@ -7,6 +7,7 @@
 
 import * as SQLite from 'expo-sqlite';
 import { CREATE_TABLES, CREATE_INDEXES, SCHEMA_VERSION } from './schema';
+import { logger } from '@/lib/logger';
 
 // ============================================
 // Types
@@ -139,7 +140,7 @@ async function applyMigration(
   db: SQLite.SQLiteDatabase,
   migration: Migration
 ): Promise<void> {
-  console.log(`[Migration] Applying migration ${migration.version}: ${migration.name}`);
+  logger.migration.info(`Applying migration ${migration.version}: ${migration.name}`);
 
   try {
     // Execute each SQL statement in the migration
@@ -152,9 +153,9 @@ async function applyMigration(
       await recordMigration(db, migration.version, migration.name);
     }
 
-    console.log(`[Migration] Successfully applied migration ${migration.version}`);
+    logger.migration.info(`Successfully applied migration ${migration.version}`);
   } catch (error) {
-    console.error(`[Migration] Failed to apply migration ${migration.version}:`, error);
+    logger.migration.error(`Failed to apply migration ${migration.version}:`, error);
     throw error;
   }
 }
@@ -166,7 +167,7 @@ async function rollbackMigration(
   db: SQLite.SQLiteDatabase,
   migration: Migration
 ): Promise<void> {
-  console.log(`[Migration] Rolling back migration ${migration.version}: ${migration.name}`);
+  logger.migration.info(`Rolling back migration ${migration.version}: ${migration.name}`);
 
   try {
     // Execute each down SQL statement
@@ -177,9 +178,9 @@ async function rollbackMigration(
     // Remove the migration record
     await removeMigrationRecord(db, migration.version);
 
-    console.log(`[Migration] Successfully rolled back migration ${migration.version}`);
+    logger.migration.info(`Successfully rolled back migration ${migration.version}`);
   } catch (error) {
-    console.error(`[Migration] Failed to rollback migration ${migration.version}:`, error);
+    logger.migration.error(`Failed to rollback migration ${migration.version}:`, error);
     throw error;
   }
 }
@@ -193,17 +194,17 @@ export async function runMigrations(db: SQLite.SQLiteDatabase): Promise<Migratio
   try {
     // Get current version
     const currentVersion = await getCurrentVersion(db);
-    console.log(`[Migration] Current schema version: ${currentVersion}`);
-    console.log(`[Migration] Target schema version: ${SCHEMA_VERSION}`);
+    logger.migration.info(`Current schema version: ${currentVersion}`);
+    logger.migration.info(`Target schema version: ${SCHEMA_VERSION}`);
 
     if (currentVersion >= SCHEMA_VERSION) {
-      console.log('[Migration] Database is up to date');
+      logger.migration.info('Database is up to date');
       return { success: true, appliedMigrations: [] };
     }
 
     // Find and apply pending migrations
     const pendingMigrations = MIGRATIONS.filter((m) => m.version > currentVersion);
-    console.log(`[Migration] Found ${pendingMigrations.length} pending migration(s)`);
+    logger.migration.info(`Found ${pendingMigrations.length} pending migration(s)`);
 
     for (const migration of pendingMigrations) {
       await applyMigration(db, migration);
@@ -215,11 +216,11 @@ export async function runMigrations(db: SQLite.SQLiteDatabase): Promise<Migratio
       }
     }
 
-    console.log('[Migration] All migrations completed successfully');
+    logger.migration.info('All migrations completed successfully');
     return { success: true, appliedMigrations };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[Migration] Migration failed:', errorMessage);
+    logger.migration.error('Migration failed:', errorMessage);
 
     return {
       success: false,
@@ -240,10 +241,10 @@ export async function rollbackToVersion(
 
   try {
     const currentVersion = await getCurrentVersion(db);
-    console.log(`[Migration] Current version: ${currentVersion}, target: ${targetVersion}`);
+    logger.migration.info(`Current version: ${currentVersion}, target: ${targetVersion}`);
 
     if (currentVersion <= targetVersion) {
-      console.log('[Migration] Nothing to rollback');
+      logger.migration.info('Nothing to rollback');
       return { success: true, appliedMigrations: [] };
     }
 
@@ -257,11 +258,11 @@ export async function rollbackToVersion(
       rolledBackMigrations.push(migration.version);
     }
 
-    console.log('[Migration] Rollback completed successfully');
+    logger.migration.info('Rollback completed successfully');
     return { success: true, appliedMigrations: rolledBackMigrations };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[Migration] Rollback failed:', errorMessage);
+    logger.migration.error('Rollback failed:', errorMessage);
 
     return {
       success: false,
@@ -275,7 +276,7 @@ export async function rollbackToVersion(
  * Resets the database by dropping all tables and re-running migrations
  */
 export async function resetDatabase(db: SQLite.SQLiteDatabase): Promise<MigrationResult> {
-  console.log('[Migration] Resetting database...');
+  logger.migration.info('Resetting database...');
 
   try {
     // Rollback all migrations
@@ -285,7 +286,7 @@ export async function resetDatabase(db: SQLite.SQLiteDatabase): Promise<Migratio
     return await runMigrations(db);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[Migration] Reset failed:', errorMessage);
+    logger.migration.error('Reset failed:', errorMessage);
 
     return {
       success: false,

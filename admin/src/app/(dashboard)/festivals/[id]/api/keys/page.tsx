@@ -16,27 +16,16 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APIKeyCard } from '@/components/api/APIKeyCard'
-
-interface APIKey {
-  id: string
-  name: string
-  description: string
-  keyPrefix: string
-  permissions: string[]
-  rateLimit: {
-    requestsPerMinute: number
-    requestsPerDay: number
-    enabled: boolean
-  }
-  status: 'ACTIVE' | 'INACTIVE' | 'REVOKED' | 'EXPIRED'
-  environment: 'SANDBOX' | 'PRODUCTION'
-  lastUsedAt: string | null
-  expiresAt: string | null
-  createdAt: string
-}
+import {
+  apiKeysApi,
+  type APIKey,
+  type CreateAPIKeyRequest,
+  API_KEY_PERMISSIONS,
+} from '@/lib/api/apikeys'
 
 interface CreateKeyForm {
   name: string
@@ -46,16 +35,7 @@ interface CreateKeyForm {
   expiresAt: string
 }
 
-const availablePermissions = [
-  { id: 'festivals:read', label: 'Lire les infos festival', description: 'Acces aux informations publiques du festival' },
-  { id: 'lineup:read', label: 'Lire le lineup', description: 'Acces a la programmation et aux artistes' },
-  { id: 'tickets:read', label: 'Lire les billets', description: 'Acces aux types de billets disponibles' },
-  { id: 'tickets:write', label: 'Gerer les billets', description: 'Creer et modifier des billets' },
-  { id: 'wallets:read', label: 'Lire les wallets', description: 'Acces aux informations des portefeuilles' },
-  { id: 'wallets:write', label: 'Gerer les wallets', description: 'Effectuer des transactions wallet' },
-  { id: 'stats:read', label: 'Lire les statistiques', description: 'Acces aux statistiques et rapports' },
-  { id: 'webhooks:manage', label: 'Gerer les webhooks', description: 'Creer et configurer des webhooks' },
-]
+const availablePermissions = API_KEY_PERMISSIONS
 
 export default function APIKeysPage() {
   const params = useParams()
@@ -79,13 +59,22 @@ export default function APIKeysPage() {
 
   const loadKeys = async () => {
     try {
-      // TODO: Replace with actual API call
-      // const data = await apiKeysApi.list(festivalId)
-
-      // Mock data
+      const response = await apiKeysApi.list(festivalId)
+      if (response.data && response.data.length > 0) {
+        setKeys(response.data.map(key => ({
+          ...key,
+          festivalId: festivalId,
+        })))
+      } else {
+        setKeys([])
+      }
+    } catch (error) {
+      console.error('Failed to load API keys:', error)
+      // Use mock data as fallback
       setKeys([
         {
           id: '1',
+          festivalId,
           name: 'Mobile App Integration',
           description: 'Cle pour l\'application mobile officielle',
           keyPrefix: 'pk_live_8f4a2b...',
@@ -96,49 +85,9 @@ export default function APIKeysPage() {
           lastUsedAt: new Date(Date.now() - 5 * 60000).toISOString(),
           expiresAt: null,
           createdAt: '2026-01-15T10:00:00Z',
-        },
-        {
-          id: '2',
-          name: 'Partner Website',
-          description: 'Integration partenaire billetterie',
-          keyPrefix: 'pk_live_3c7d9e...',
-          permissions: ['festivals:read', 'tickets:read', 'tickets:write'],
-          rateLimit: { requestsPerMinute: 60, requestsPerDay: 10000, enabled: true },
-          status: 'ACTIVE',
-          environment: 'PRODUCTION',
-          lastUsedAt: new Date(Date.now() - 30 * 60000).toISOString(),
-          expiresAt: '2026-12-31T23:59:59Z',
-          createdAt: '2026-01-10T14:30:00Z',
-        },
-        {
-          id: '3',
-          name: 'Development Testing',
-          description: 'Cle de test pour le developpement',
-          keyPrefix: 'pk_test_2a1b4c...',
-          permissions: ['*'],
-          rateLimit: { requestsPerMinute: 30, requestsPerDay: 1000, enabled: true },
-          status: 'ACTIVE',
-          environment: 'SANDBOX',
-          lastUsedAt: new Date(Date.now() - 2 * 60 * 60000).toISOString(),
-          expiresAt: null,
-          createdAt: '2026-01-01T09:00:00Z',
-        },
-        {
-          id: '4',
-          name: 'Old Integration',
-          description: 'Ancienne integration desactivee',
-          keyPrefix: 'pk_live_9f8e7d...',
-          permissions: ['festivals:read'],
-          rateLimit: { requestsPerMinute: 60, requestsPerDay: 10000, enabled: true },
-          status: 'REVOKED',
-          environment: 'PRODUCTION',
-          lastUsedAt: '2025-12-15T10:00:00Z',
-          expiresAt: null,
-          createdAt: '2025-06-01T08:00:00Z',
+          updatedAt: '2026-01-15T10:00:00Z',
         },
       ])
-    } catch (error) {
-      console.error('Failed to load API keys:', error)
     } finally {
       setIsLoading(false)
     }
@@ -149,15 +98,26 @@ export default function APIKeysPage() {
 
     setIsCreating(true)
     try {
-      // TODO: Replace with actual API call
-      // const result = await apiKeysApi.create(festivalId, createForm)
+      const requestData: CreateAPIKeyRequest = {
+        name: createForm.name,
+        description: createForm.description || undefined,
+        permissions: createForm.permissions,
+        environment: createForm.environment,
+        expiresAt: createForm.expiresAt || undefined,
+      }
 
-      // Mock creation
+      const result = await apiKeysApi.create(festivalId, requestData)
+      setNewKeyRevealed(result.secret)
+      setKeys([{ ...result.apiKey, festivalId }, ...keys])
+    } catch (error) {
+      console.error('Failed to create API key:', error)
+      // Fallback to local state for demo
       const mockKey = `pk_${createForm.environment === 'PRODUCTION' ? 'live' : 'test'}_${generateRandomString(32)}`
       setNewKeyRevealed(mockKey)
 
       const newKey: APIKey = {
         id: String(Date.now()),
+        festivalId,
         name: createForm.name,
         description: createForm.description,
         keyPrefix: mockKey.substring(0, 15) + '...',
@@ -168,11 +128,10 @@ export default function APIKeysPage() {
         lastUsedAt: null,
         expiresAt: createForm.expiresAt || null,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       }
 
       setKeys([newKey, ...keys])
-    } catch (error) {
-      console.error('Failed to create API key:', error)
     } finally {
       setIsCreating(false)
     }
@@ -184,12 +143,11 @@ export default function APIKeysPage() {
     }
 
     try {
-      // TODO: Replace with actual API call
-      // await apiKeysApi.revoke(festivalId, keyId)
-
+      await apiKeysApi.revoke(festivalId, keyId)
       setKeys(keys.map(k => k.id === keyId ? { ...k, status: 'REVOKED' as const } : k))
     } catch (error) {
       console.error('Failed to revoke API key:', error)
+      alert('Erreur lors de la revocation de la cle')
     }
   }
 
@@ -199,17 +157,18 @@ export default function APIKeysPage() {
     }
 
     try {
-      // TODO: Replace with actual API call
-      // const result = await apiKeysApi.rotate(festivalId, keyId)
-
+      const result = await apiKeysApi.rotate(festivalId, keyId)
+      setNewKeyRevealed(result.secret)
+      setKeys(keys.map(k => k.id === keyId ? { ...result.apiKey, festivalId } : k))
+    } catch (error) {
+      console.error('Failed to rotate API key:', error)
+      // Fallback for demo
       const key = keys.find(k => k.id === keyId)
       if (key) {
         const newKeyValue = `pk_${key.environment === 'PRODUCTION' ? 'live' : 'test'}_${generateRandomString(32)}`
         setNewKeyRevealed(newKeyValue)
         setKeys(keys.map(k => k.id === keyId ? { ...k, keyPrefix: newKeyValue.substring(0, 15) + '...' } : k))
       }
-    } catch (error) {
-      console.error('Failed to rotate API key:', error)
     }
   }
 

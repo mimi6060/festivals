@@ -8,6 +8,7 @@
 import * as SQLite from 'expo-sqlite';
 import * as Crypto from 'expo-crypto';
 import { runMigrations, needsMigration, getCurrentVersion } from './migrations';
+import { logger } from '@/lib/logger';
 import {
   PendingTransactionRow,
   CachedWalletRow,
@@ -56,7 +57,7 @@ export async function initializeDatabase(): Promise<SQLite.SQLiteDatabase> {
   }
 
   try {
-    console.log('[Database] Opening database...');
+    logger.db.info('Opening database...');
     const db = await SQLite.openDatabaseAsync(DATABASE_NAME);
 
     // Enable foreign keys
@@ -64,23 +65,23 @@ export async function initializeDatabase(): Promise<SQLite.SQLiteDatabase> {
 
     // Check and run migrations
     if (await needsMigration(db)) {
-      console.log('[Database] Running migrations...');
+      logger.db.info('Running migrations...');
       const result = await runMigrations(db);
 
       if (!result.success) {
         throw new Error(`Migration failed: ${result.error}`);
       }
 
-      console.log(`[Database] Applied ${result.appliedMigrations.length} migration(s)`);
+      logger.db.info(`Applied ${result.appliedMigrations.length} migration(s)`);
     }
 
     const version = await getCurrentVersion(db);
-    console.log(`[Database] Database ready at version ${version}`);
+    logger.db.info(`Database ready at version ${version}`);
 
     dbInstance = db;
     return db;
   } catch (error) {
-    console.error('[Database] Failed to initialize database:', error);
+    logger.db.error('Failed to initialize database:', error);
     throw error;
   }
 }
@@ -102,7 +103,7 @@ export async function closeDatabase(): Promise<void> {
   if (dbInstance) {
     await dbInstance.closeAsync();
     dbInstance = null;
-    console.log('[Database] Database closed');
+    logger.db.info('Database closed');
   }
 }
 
@@ -1079,7 +1080,7 @@ export async function clearAllCachedData(): Promise<void> {
     await db.execAsync('DELETE FROM sync_queue WHERE status = "completed";');
   });
 
-  console.log('[Database] All cached data cleared');
+  logger.db.info('All cached data cleared');
 }
 
 /**

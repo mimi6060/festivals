@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -16,7 +16,10 @@ import {
   Edit,
   Trash2,
   GripVertical,
+  Loader2,
 } from 'lucide-react'
+import { performancesApi, stagesApi, type PerformanceWithDetails, type StageWithDetails } from '@/lib/api/lineup'
+import { api } from '@/lib/api'
 
 // Mock data for demonstration
 const mockFestival = {
@@ -103,20 +106,61 @@ export default function LineupPage() {
 
   const [selectedDate, setSelectedDate] = useState(festivalDates[0])
   const [draggedPerformance, setDraggedPerformance] = useState<string | null>(null)
+  const [performances, setPerformances] = useState(mockPerformances)
+  const [stages, setStages] = useState(mockStages)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isRescheduling, setIsRescheduling] = useState(false)
+
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true)
+      try {
+        const [stagesData, performancesData] = await Promise.all([
+          stagesApi.list(festivalId),
+          performancesApi.list(festivalId),
+        ])
+        if (stagesData && stagesData.length > 0) {
+          setStages(stagesData.map(s => ({
+            id: s.id,
+            name: s.name,
+            capacity: s.capacity || 0,
+            type: s.type || 'SECONDARY',
+          })))
+        }
+        if (performancesData && performancesData.length > 0) {
+          setPerformances(performancesData.map(p => ({
+            id: p.id,
+            artistName: p.artist?.name || 'Unknown Artist',
+            stageId: p.stageId,
+            startTime: p.startTime,
+            endTime: p.endTime,
+            status: p.status || 'PENDING',
+          })))
+        }
+      } catch (error) {
+        console.error('Failed to load lineup data:', error)
+        // Keep mock data on error
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadData()
+  }, [festivalId])
 
   // Filter performances for selected date
   const dayPerformances = useMemo(() => {
-    return mockPerformances.filter((p) => p.startTime.startsWith(selectedDate))
-  }, [selectedDate])
+    return performances.filter((p) => p.startTime.startsWith(selectedDate))
+  }, [selectedDate, performances])
 
   // Group performances by stage
   const performancesByStage = useMemo(() => {
-    const grouped: Record<string, typeof mockPerformances> = {}
-    mockStages.forEach((stage) => {
+    const grouped: Record<string, typeof performances> = {}
+    stages.forEach((stage) => {
       grouped[stage.id] = dayPerformances.filter((p) => p.stageId === stage.id)
     })
     return grouped
-  }, [dayPerformances])
+  }, [dayPerformances, stages])
 
   const handleDragStart = (performanceId: string) => {
     setDraggedPerformance(performanceId)
@@ -126,9 +170,56 @@ export default function LineupPage() {
     setDraggedPerformance(null)
   }
 
-  const handleDrop = (stageId: string, hour: number) => {
-    if (draggedPerformance) {
-      // TODO: Implement actual rescheduling via API
+  const handleDrop = async (stageId: string, hour: number) => {
+    if (!draggedPerformance) return
+
+    const performance = performances.find((p) => p.id === draggedPerformance)
+    if (!performance) {
+      setDraggedPerformance(null)
+      return
+    }
+
+    setIsRescheduling(true)
+    try {
+      // Calculate new start and end times based on drop position
+      const originalStart = new Date(performance.startTime)
+      const originalEnd = new Date(performance.endTime)
+      const duration = originalEnd.getTime() - originalStart.getTime()
+
+      // Build new start time from selected date and drop hour
+      const newStartTime = new Date(selectedDate)
+      if (hour < 14) {
+        // After midnight, so it's the next day
+        newStartTime.setDate(newStartTime.getDate() + 1)
+      }
+      newStartTime.setHours(hour, 0, 0, 0)
+      const newEndTime = new Date(newStartTime.getTime() + duration)
+
+      // Call API to update performance
+      await performancesApi.update(festivalId, draggedPerformance, {
+        stageId,
+        startTime: newStartTime.toISOString(),
+        endTime: newEndTime.toISOString(),
+      })
+
+      // Update local state on success
+      setPerformances((prev) =>
+        prev.map((p) =>
+          p.id === draggedPerformance
+            ? {
+                ...p,
+                stageId,
+                startTime: newStartTime.toISOString(),
+                endTime: newEndTime.toISOString(),
+              }
+            : p
+        )
+      )
+    } catch (error) {
+      console.error('Failed to reschedule performance:', error)
+      alert('Erreur lors du deplacement de la performance')
+    } finally {
+      setIsRescheduling(false)
       setDraggedPerformance(null)
     }
   }
@@ -240,6 +331,16 @@ export default function LineupPage() {
         </div>
       </div>
 
+      {/* Loading/Rescheduling indicator */}
+      {(isLoading || isRescheduling) && (
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg bg-white px-4 py-2 shadow-lg border">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <span className="text-sm text-gray-600">
+            {isLoading ? 'Chargement...' : 'Deplacement en cours...'}
+          </span>
+        </div>
+      )}
+
       {/* Stats for the day */}
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-lg border bg-white p-4">
@@ -260,7 +361,7 @@ export default function LineupPage() {
             </div>
             <div>
               <p className="text-sm text-gray-500">Scenes actives</p>
-              <p className="text-2xl font-bold">{mockStages.length}</p>
+              <p className="text-2xl font-bold">{stages.length}</p>
             </div>
           </div>
         </div>
@@ -321,7 +422,7 @@ export default function LineupPage() {
             </div>
 
             {/* Stage rows */}
-            {mockStages.map((stage, stageIndex) => (
+            {stages.map((stage, stageIndex) => (
               <div key={stage.id} className="flex border-b last:border-b-0">
                 {/* Stage name */}
                 <div className="w-40 shrink-0 border-r bg-gray-50 px-4 py-3">
@@ -421,7 +522,7 @@ export default function LineupPage() {
             dayPerformances
               .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
               .map((performance) => {
-                const stage = mockStages.find((s) => s.id === performance.stageId)
+                const stage = stages.find((s) => s.id === performance.stageId)
                 return (
                   <div
                     key={performance.id}

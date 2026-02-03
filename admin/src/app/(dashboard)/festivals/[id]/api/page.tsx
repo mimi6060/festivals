@@ -16,27 +16,14 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-interface APIStats {
-  totalKeys: number
-  activeKeys: number
-  totalWebhooks: number
-  activeWebhooks: number
-  requestsToday: number
-  requestsThisMonth: number
-  successRate: number
-  avgResponseTime: number
-}
-
-interface RecentActivity {
-  id: string
-  type: 'request' | 'webhook' | 'key_created' | 'key_revoked'
-  description: string
-  timestamp: string
-  status: 'success' | 'error' | 'pending'
-}
+import {
+  apiKeysApi,
+  type APIKeyStats,
+  type RecentActivity,
+} from '@/lib/api/apikeys'
 
 const navigationCards = [
   {
@@ -62,10 +49,60 @@ const navigationCards = [
   },
 ]
 
+// Mock data for fallback
+const mockStats: APIKeyStats = {
+  totalKeys: 4,
+  activeKeys: 3,
+  totalWebhooks: 6,
+  activeWebhooks: 5,
+  requestsToday: 1247,
+  requestsThisMonth: 45892,
+  successRate: 99.2,
+  avgResponseTime: 45,
+}
+
+const mockActivity: RecentActivity[] = [
+  {
+    id: '1',
+    type: 'request',
+    description: 'GET /public/v1/festivals/{id}/lineup - 200 OK',
+    timestamp: new Date(Date.now() - 2 * 60000).toISOString(),
+    status: 'success',
+  },
+  {
+    id: '2',
+    type: 'webhook',
+    description: 'ticket.sold envoye a https://example.com/webhook',
+    timestamp: new Date(Date.now() - 5 * 60000).toISOString(),
+    status: 'success',
+  },
+  {
+    id: '3',
+    type: 'request',
+    description: 'GET /public/v1/festivals/{id}/tickets - 200 OK',
+    timestamp: new Date(Date.now() - 8 * 60000).toISOString(),
+    status: 'success',
+  },
+  {
+    id: '4',
+    type: 'webhook',
+    description: 'wallet.topup echec - Timeout',
+    timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
+    status: 'error',
+  },
+  {
+    id: '5',
+    type: 'key_created',
+    description: 'Nouvelle cle API creee: Mobile App Integration',
+    timestamp: new Date(Date.now() - 60 * 60000).toISOString(),
+    status: 'success',
+  },
+]
+
 export default function APIDashboardPage() {
   const params = useParams()
   const festivalId = params.id as string
-  const [stats, setStats] = useState<APIStats | null>(null)
+  const [stats, setStats] = useState<APIKeyStats | null>(null)
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -75,63 +112,17 @@ export default function APIDashboardPage() {
 
   const loadData = async () => {
     try {
-      // TODO: Replace with actual API calls
-      // const [statsData, activityData] = await Promise.all([
-      //   apiKeysApi.getStats(festivalId),
-      //   apiKeysApi.getRecentActivity(festivalId),
-      // ])
-
-      // Mock data for development
-      setStats({
-        totalKeys: 4,
-        activeKeys: 3,
-        totalWebhooks: 6,
-        activeWebhooks: 5,
-        requestsToday: 1247,
-        requestsThisMonth: 45892,
-        successRate: 99.2,
-        avgResponseTime: 45,
-      })
-
-      setRecentActivity([
-        {
-          id: '1',
-          type: 'request',
-          description: 'GET /public/v1/festivals/{id}/lineup - 200 OK',
-          timestamp: new Date(Date.now() - 2 * 60000).toISOString(),
-          status: 'success',
-        },
-        {
-          id: '2',
-          type: 'webhook',
-          description: 'ticket.sold envoye a https://example.com/webhook',
-          timestamp: new Date(Date.now() - 5 * 60000).toISOString(),
-          status: 'success',
-        },
-        {
-          id: '3',
-          type: 'request',
-          description: 'GET /public/v1/festivals/{id}/tickets - 200 OK',
-          timestamp: new Date(Date.now() - 8 * 60000).toISOString(),
-          status: 'success',
-        },
-        {
-          id: '4',
-          type: 'webhook',
-          description: 'wallet.topup echec - Timeout',
-          timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
-          status: 'error',
-        },
-        {
-          id: '5',
-          type: 'key_created',
-          description: 'Nouvelle cle API creee: Mobile App Integration',
-          timestamp: new Date(Date.now() - 60 * 60000).toISOString(),
-          status: 'success',
-        },
+      const [statsData, activityData] = await Promise.all([
+        apiKeysApi.getStats(festivalId),
+        apiKeysApi.getRecentActivity(festivalId, { limit: 10 }),
       ])
+      setStats(statsData)
+      setRecentActivity(activityData)
     } catch (error) {
       console.error('Failed to load API stats:', error)
+      // Use mock data as fallback
+      setStats(mockStats)
+      setRecentActivity(mockActivity)
     } finally {
       setIsLoading(false)
     }

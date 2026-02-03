@@ -1,5 +1,6 @@
 import NetInfo, { NetInfoState, NetInfoStateType } from '@react-native-community/netinfo';
 import { useNetworkStore } from '@/stores/networkStore';
+import { logger } from '@/lib/logger';
 
 // API Configuration
 const API_HEALTH_ENDPOINT = '/health';
@@ -144,7 +145,7 @@ class NetworkMonitor {
     this.startPeriodicChecks();
 
     this.isInitialized = true;
-    console.log('[NetworkMonitor] Initialized');
+    logger.network.info('Initialized');
   }
 
   /**
@@ -162,7 +163,7 @@ class NetworkMonitor {
     }
 
     this.isInitialized = false;
-    console.log('[NetworkMonitor] Stopped');
+    logger.network.info('Stopped');
   }
 
   /**
@@ -216,7 +217,7 @@ class NetworkMonitor {
         }
       }
     } catch (error) {
-      console.error('[NetworkMonitor] API check failed:', error);
+      logger.network.error('API check failed:', error);
     }
   }
 

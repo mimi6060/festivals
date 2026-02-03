@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 import { useNetworkStore } from '@/stores/networkStore';
 import { useSyncStore, SyncResult, SyncStatus } from '@/stores/syncStore';
+import { logger } from '@/lib/logger';
 
 export interface NetworkSyncState {
   isOnline: boolean;
@@ -99,7 +100,7 @@ export const useNetworkSync = (options: UseNetworkSyncOptions = {}) => {
 
       return result;
     } catch (error) {
-      console.error('Sync failed:', error);
+      logger.sync.error('Sync failed:', error);
       return {
         success: false,
         syncedCount: 0,

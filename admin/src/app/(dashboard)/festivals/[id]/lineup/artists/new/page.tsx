@@ -17,6 +17,7 @@ import {
   X,
   Plus,
 } from 'lucide-react'
+import { artistsApi, type CreateArtistRequest } from '@/lib/api/lineup'
 
 // Spotify and SoundCloud icons as simple components
 const SpotifyIcon = () => (
@@ -96,7 +97,9 @@ export default function NewArtistPage() {
   const [formData, setFormData] = useState<ArtistFormData>(initialFormData)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageFile, setImageFile] = useState<File | null>(null)
   const [errors, setErrors] = useState<Partial<Record<keyof ArtistFormData, string>>>({})
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -118,7 +121,10 @@ export default function NewArtistPage() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      // TODO: Implement actual file upload to storage service
+      // Store file for upload during form submission
+      setImageFile(file)
+
+      // Create preview
       const reader = new FileReader()
       reader.onloadend = () => {
         setImagePreview(reader.result as string)
@@ -127,8 +133,33 @@ export default function NewArtistPage() {
     }
   }
 
+  const uploadImage = async (file: File): Promise<string | null> => {
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('type', 'artist')
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/v1/uploads`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        throw new Error('Upload failed')
+      }
+
+      const data = await response.json()
+      return data.url || data.data?.url || null
+    } catch (error) {
+      console.error('Image upload failed:', error)
+      return null
+    }
+  }
+
   const removeImage = () => {
     setImagePreview(null)
+    setImageFile(null)
   }
 
   const validateForm = (): boolean => {
@@ -148,6 +179,7 @@ export default function NewArtistPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSubmitError(null)
 
     if (!validateForm()) {
       return
@@ -156,15 +188,40 @@ export default function NewArtistPage() {
     setIsSubmitting(true)
 
     try {
-      // TODO: Implement actual API call
-      // await artistsApi.create(festivalId, formData)
+      // Upload image if present
+      let imageUrl: string | undefined = undefined
+      if (imageFile) {
+        const uploadedUrl = await uploadImage(imageFile)
+        if (uploadedUrl) {
+          imageUrl = uploadedUrl
+        }
+      }
 
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      // Build request payload
+      const requestData: CreateArtistRequest = {
+        name: formData.name,
+        bio: formData.bio || undefined,
+        genre: formData.genre || undefined,
+        type: formData.type || undefined,
+        imageUrl,
+        socialLinks: {
+          instagram: formData.socialLinks.instagram || undefined,
+          spotify: formData.socialLinks.spotify || undefined,
+          soundcloud: formData.socialLinks.soundcloud || undefined,
+          website: formData.socialLinks.website || undefined,
+          twitter: formData.socialLinks.twitter || undefined,
+          youtube: formData.socialLinks.youtube || undefined,
+        },
+        guestQuota: formData.guestQuota || 0,
+      }
+
+      // Call API to create artist
+      await artistsApi.create(festivalId, requestData)
 
       router.push(`/festivals/${festivalId}/lineup/artists`)
     } catch (error) {
       console.error('Error creating artist:', error)
+      setSubmitError('Erreur lors de la creation de l\'artiste. Veuillez reessayer.')
     } finally {
       setIsSubmitting(false)
     }
@@ -196,6 +253,13 @@ export default function NewArtistPage() {
           Retour
         </Link>
       </div>
+
+      {/* Error message */}
+      {submitError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
+          {submitError}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="grid gap-6 lg:grid-cols-3">
         {/* Main form */}
