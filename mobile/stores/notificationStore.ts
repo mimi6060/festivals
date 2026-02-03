@@ -8,7 +8,13 @@ export type NotificationType =
   | 'lineup'
   | 'sos'
   | 'announcement'
-  | 'general';
+  | 'general'
+  | 'lineup_change'
+  | 'wallet_low'
+  | 'order_ready'
+  | 'order'
+  | 'security'
+  | 'payment';
 
 export interface Notification {
   id: string;

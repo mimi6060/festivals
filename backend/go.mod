@@ -15,13 +15,13 @@ require (
 	github.com/jackc/pgx/v5 v5.5.4
 	github.com/joho/godotenv v1.5.1
 	github.com/jung-kurt/gofpdf v1.16.2
-	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/lestrrat-go/jwx/v2 v2.0.21
 	github.com/lib/pq v1.10.9
 	github.com/minio/minio-go/v7 v7.0.70
 	github.com/prometheus/client_golang v1.19.0
 	github.com/redis/go-redis/v9 v9.5.1
 	github.com/rs/zerolog v1.31.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/stretchr/testify v1.9.0
 	github.com/stripe/stripe-go/v76 v76.14.0
 	github.com/swaggo/files v1.0.1

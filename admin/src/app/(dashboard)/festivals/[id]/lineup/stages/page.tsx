@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -20,6 +20,7 @@ import {
   Building,
   Trees,
 } from 'lucide-react'
+import { stagesApi, type StageWithDetails, type CreateStageRequest, type UpdateStageRequest } from '@/lib/api/lineup'
 
 // Mock data for demonstration
 const mockStages = [
@@ -111,6 +112,36 @@ export default function StagesPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [expandedStage, setExpandedStage] = useState<string | null>(null)
   const [errors, setErrors] = useState<Partial<Record<keyof StageFormData, string>>>({})
+  const [isLoading, setIsLoading] = useState(true)
+  const [apiError, setApiError] = useState<string | null>(null)
+
+  // Load stages from API
+  useEffect(() => {
+    const loadStages = async () => {
+      setIsLoading(true)
+      try {
+        const data = await stagesApi.list(festivalId)
+        if (data && data.length > 0) {
+          setStages(data.map(s => ({
+            id: s.id,
+            name: s.name,
+            capacity: s.capacity || 0,
+            type: s.type || 'SECONDARY',
+            description: s.description || '',
+            isActive: s.isActive,
+            performanceCount: 0, // Would need to be calculated or fetched
+            location: { lat: 50.8503, lng: 4.3517 },
+          })))
+        }
+      } catch (error) {
+        console.error('Failed to load stages:', error)
+        // Keep mock data on error
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadStages()
+  }, [festivalId])
 
   const isEditing = !!formData.id
 
@@ -175,6 +206,7 @@ export default function StagesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setApiError(null)
 
     if (!validateForm()) {
       return
@@ -183,17 +215,17 @@ export default function StagesPage() {
     setIsSubmitting(true)
 
     try {
-      // TODO: Implement actual API call
-      // if (isEditing) {
-      //   await stagesApi.update(festivalId, formData.id!, formData)
-      // } else {
-      //   await stagesApi.create(festivalId, formData)
-      // }
+      if (isEditing && formData.id) {
+        // Update existing stage
+        const updateData: UpdateStageRequest = {
+          name: formData.name,
+          capacity: formData.capacity || undefined,
+          description: formData.description || undefined,
+          type: formData.type || undefined,
+          isActive: formData.isActive,
+        }
+        await stagesApi.update(festivalId, formData.id, updateData)
 
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 500))
-
-      if (isEditing) {
         setStages((prev) =>
           prev.map((s) =>
             s.id === formData.id
@@ -202,20 +234,34 @@ export default function StagesPage() {
           )
         )
       } else {
-        const newStage = {
-          ...formData,
-          id: String(Date.now()),
-          capacity: formData.capacity || 0,
-          type: formData.type || 'SECONDARY',
-          performanceCount: 0,
-          location: { lat: 50.8503, lng: 4.3517 },
+        // Create new stage
+        const createData: CreateStageRequest = {
+          name: formData.name,
+          capacity: formData.capacity || undefined,
+          description: formData.description || undefined,
+          type: formData.type || undefined,
         }
-        setStages((prev) => [...prev, newStage])
+        const newStage = await stagesApi.create(festivalId, createData)
+
+        setStages((prev) => [
+          ...prev,
+          {
+            id: newStage.id,
+            name: newStage.name,
+            capacity: newStage.capacity || 0,
+            type: newStage.type || 'SECONDARY',
+            description: newStage.description || '',
+            isActive: newStage.isActive,
+            performanceCount: 0,
+            location: { lat: 50.8503, lng: 4.3517 },
+          },
+        ])
       }
 
       closeModal()
     } catch (error) {
       console.error('Error saving stage:', error)
+      setApiError('Erreur lors de la sauvegarde de la scene')
     } finally {
       setIsSubmitting(false)
     }
@@ -223,13 +269,12 @@ export default function StagesPage() {
 
   const handleDelete = async (stageId: string) => {
     try {
-      // TODO: Implement actual API call
-      // await stagesApi.delete(festivalId, stageId)
-
+      await stagesApi.delete(festivalId, stageId)
       setStages((prev) => prev.filter((s) => s.id !== stageId))
       setDeleteConfirm(null)
     } catch (error) {
       console.error('Error deleting stage:', error)
+      alert('Erreur lors de la suppression de la scene')
     }
   }
 
@@ -238,14 +283,13 @@ export default function StagesPage() {
     if (!stage) return
 
     try {
-      // TODO: Implement actual API call
-      // await stagesApi.update(festivalId, stageId, { isActive: !stage.isActive })
-
+      await stagesApi.update(festivalId, stageId, { isActive: !stage.isActive })
       setStages((prev) =>
         prev.map((s) => (s.id === stageId ? { ...s, isActive: !s.isActive } : s))
       )
     } catch (error) {
       console.error('Error toggling stage status:', error)
+      alert('Erreur lors de la modification du statut')
     }
   }
 
@@ -274,6 +318,13 @@ export default function StagesPage() {
           Ajouter une scene
         </button>
       </div>
+
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
@@ -519,6 +570,12 @@ export default function StagesPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
+
+            {apiError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {apiError}
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>

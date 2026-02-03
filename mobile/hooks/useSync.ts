@@ -11,6 +11,7 @@ import { useSyncStore, SyncStatus, SyncProgress } from '@/stores/syncStore';
 import { useNetworkStore } from '@/stores/networkStore';
 import { SyncEngine, SyncResult, SyncOptions, SyncState as EngineSyncState } from '@/lib/sync/engine';
 import { SyncManager } from '@/lib/sync/manager';
+import { logger } from '@/lib/logger';
 
 // Hook options
 export interface UseSyncOptions {
@@ -117,7 +118,7 @@ export function useSync(options: UseSyncOptions = {}): UseSyncReturn {
     syncEngineRef.current = engine;
 
     // Initialize engine
-    engine.initialize().catch(console.error);
+    engine.initialize().catch((err) => logger.sync.error('Failed to initialize sync engine:', err));
 
     // Listen for engine events
     const unsubOnline = engine.addEventListener('NETWORK_ONLINE', () => {
@@ -164,7 +165,7 @@ export function useSync(options: UseSyncOptions = {}): UseSyncReturn {
         // App came to foreground
         const timeSinceLastSync = Date.now() - lastSyncTimeRef.current;
         if (timeSinceLastSync >= opts.minSyncInterval!) {
-          sync({ priority: 'NORMAL' }).catch(console.error);
+          sync({ priority: 'NORMAL' }).catch((err) => logger.sync.error('Foreground sync failed:', err));
         }
       }
       appStateRef.current = nextAppState;
@@ -186,7 +187,7 @@ export function useSync(options: UseSyncOptions = {}): UseSyncReturn {
       if (timeSinceLastSync >= opts.minSyncInterval!) {
         // Delay to ensure network is stable
         const timeoutId = setTimeout(() => {
-          sync({ priority: 'HIGH' }).catch(console.error);
+          sync({ priority: 'HIGH' }).catch((err) => logger.sync.error('Online sync failed:', err));
         }, 1000);
 
         return () => clearTimeout(timeoutId);
@@ -412,11 +413,11 @@ export function useSyncInitialization() {
       .initialize()
       .then(() => {
         setIsInitialized(true);
-        console.log('[useSyncInitialization] Sync engine initialized');
+        logger.sync.info('Sync engine initialized');
       })
       .catch((error) => {
         setInitError(error);
-        console.error('[useSyncInitialization] Failed to initialize sync engine:', error);
+        logger.sync.error('Failed to initialize sync engine:', error);
       });
 
     return () => {

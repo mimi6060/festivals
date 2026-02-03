@@ -1,43 +1,95 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { View } from 'react-native';
+import { useEffect, useState, useCallback } from 'react';
+import { View, Alert } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useAuthStore } from '@/stores/authStore';
-import {
-  registerForPushNotifications,
-  savePushToken,
-  initializeNotificationListeners,
-  getInitialNotification,
-  handleNotificationResponse,
-  setBadgeCount,
-} from '@/lib/notifications';
-import { useNotificationStore, selectUnreadCount } from '@/stores/notificationStore';
+import { useNotifications } from '@/hooks/useNotifications';
 import { initializeNetworkMonitoring } from '@/lib/network';
 import { NetworkStatusBar } from '@/components/network';
 import { SyncProgressOverlay } from '@/components/network';
+import { Notification } from '@/stores/notificationStore';
+import { logger } from '@/lib/logger';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
+/**
+ * Root Layout Component
+ * Handles app initialization including:
+ * - Push notification setup
+ * - Network monitoring
+ * - Navigation structure
+ */
 export default function RootLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [syncOverlayVisible, setSyncOverlayVisible] = useState(false);
+
+  // Initialize push notifications with the custom hook
+  const {
+    isInitialized: notificationsInitialized,
+    unreadCount,
+    syncToken,
+  } = useNotifications({
+    autoRequestPermission: true,
+    autoSyncToken: true,
+    onNotificationReceived: handleNotificationReceived,
+    onNotificationPressed: handleNotificationPressed,
+  });
+
+  /**
+   * Handle notifications received while app is in foreground
+   * Can show an in-app banner or toast
+   */
+  function handleNotificationReceived(notification: Notification) {
+    logger.notifications.debug('Notification received:', notification.title);
+
+    // For important notifications, show an in-app alert
+    if (notification.type === 'sos' || notification.type === 'announcement') {
+      Alert.alert(
+        notification.title,
+        notification.body,
+        [{ text: 'OK' }],
+        { cancelable: true }
+      );
+    }
+  }
+
+  /**
+   * Handle notification taps
+   * Navigation is handled automatically by useNotifications hook
+   */
+  function handleNotificationPressed(notification: Notification, data: Record<string, unknown>) {
+    logger.notifications.debug('Notification pressed:', notification.title);
+  }
 
   // Initialize network monitoring on mount
   useEffect(() => {
     initializeNetworkMonitoring({
       checkInterval: 30000, // Check every 30 seconds
       onStatusChange: (isOnline, quality) => {
-        console.log('[Network] Status changed:', { isOnline, quality });
+        logger.network.debug('Status changed:', { isOnline, quality });
       },
     });
   }, []);
 
+  // Hide splash screen after initialization
   useEffect(() => {
-    // Hide splash screen after app is ready
-    SplashScreen.hideAsync();
-  }, []);
+    const hideSplash = async () => {
+      // Wait for notifications to initialize
+      if (notificationsInitialized) {
+        await SplashScreen.hideAsync();
+      }
+    };
+    hideSplash();
+  }, [notificationsInitialized]);
+
+  // Sync push token when user authenticates
+  useEffect(() => {
+    if (isAuthenticated && notificationsInitialized) {
+      syncToken();
+    }
+  }, [isAuthenticated, notificationsInitialized, syncToken]);
 
   // Handle network status bar tap to show sync overlay
   const handleNetworkStatusPress = useCallback(() => {
@@ -114,6 +166,13 @@ export default function RootLayout() {
           options={{
             headerShown: true,
             title: 'Ajouter un ami',
+          }}
+        />
+        <Stack.Screen
+          name="notifications"
+          options={{
+            headerShown: true,
+            title: 'Notifications',
           }}
         />
       </Stack>

@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { formatCurrency, formatNumber } from '@/lib/utils'
-import { LucideIcon, TrendingUp, TrendingDown, Minus, Wifi, WifiOff } from 'lucide-react'
+import { LucideIcon, TrendingUp, TrendingDown, Minus, Wifi, WifiOff, RefreshCw, Signal } from 'lucide-react'
 import type { StatsUpdate, ConnectionStatus } from '@/hooks/useWebSocket'
+import type { ConnectionState } from '@/lib/websocket'
 
 interface LiveStatCardProps {
   title: string
@@ -91,8 +92,8 @@ function LiveStatCard({
 }
 
 interface LiveStatsProps {
-  stats: StatsUpdate | null
-  connectionStatus: ConnectionStatus
+  stats: (StatsUpdate & { active_users?: number }) | null
+  connectionStatus: ConnectionStatus | ConnectionState
   loading?: boolean
   icons: {
     revenue: LucideIcon
@@ -165,23 +166,34 @@ export function LiveStats({
             ? 'bg-green-50 text-green-700'
             : connectionStatus === 'connecting'
               ? 'bg-yellow-50 text-yellow-700'
-              : 'bg-red-50 text-red-700'
+              : connectionStatus === 'reconnecting'
+                ? 'bg-orange-50 text-orange-700'
+                : 'bg-red-50 text-red-700'
         )}
       >
         {isConnected ? (
           <>
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+            </span>
             <Wifi className="h-4 w-4" />
-            <span>Live - Real-time updates active</span>
+            <span>Live - Mises a jour en temps reel actives</span>
           </>
         ) : connectionStatus === 'connecting' ? (
           <>
-            <Wifi className="h-4 w-4 animate-pulse" />
-            <span>Connecting...</span>
+            <Signal className="h-4 w-4 animate-pulse" />
+            <span>Connexion en cours...</span>
+          </>
+        ) : connectionStatus === 'reconnecting' ? (
+          <>
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            <span>Reconnexion en cours...</span>
           </>
         ) : (
           <>
             <WifiOff className="h-4 w-4" />
-            <span>Disconnected - Attempting to reconnect...</span>
+            <span>Deconnecte - Tentative de reconnexion...</span>
           </>
         )}
       </div>

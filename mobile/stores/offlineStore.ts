@@ -9,6 +9,7 @@
  */
 
 import { create } from 'zustand';
+import { logger } from '@/lib/logger';
 import {
   initializeDatabase,
   closeDatabase,
@@ -228,7 +229,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     set({ isInitializing: true, initError: null });
 
     try {
-      console.log('[OfflineStore] Initializing database...');
+      logger.stores.offline.info('Initializing database...');
       await initializeDatabase();
 
       // Load pending transactions into memory
@@ -244,11 +245,11 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
         stats,
       });
 
-      console.log('[OfflineStore] Database initialized successfully');
-      console.log(`[OfflineStore] Loaded ${pendingTx.length} pending transactions`);
+      logger.stores.offline.info('Database initialized successfully');
+      logger.stores.offline.debug(`Loaded ${pendingTx.length} pending transactions`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[OfflineStore] Failed to initialize database:', errorMessage);
+      logger.stores.offline.error('Failed to initialize database:', errorMessage);
 
       set({
         isInitializing: false,
@@ -270,9 +271,9 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
         cachedProducts: new Map(),
         stats: null,
       });
-      console.log('[OfflineStore] Cleanup completed');
+      logger.stores.offline.info('Cleanup completed');
     } catch (error) {
-      console.error('[OfflineStore] Cleanup failed:', error);
+      logger.stores.offline.error('Cleanup failed:', error);
     }
   },
 
@@ -281,7 +282,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
       const stats = await getDatabaseStats();
       set({ stats });
     } catch (error) {
-      console.error('[OfflineStore] Failed to refresh stats:', error);
+      logger.stores.offline.error('Failed to refresh stats:', error);
     }
   },
 
@@ -329,7 +330,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     // Update stats
     get().refreshStats();
 
-    console.log(`[OfflineStore] Added pending transaction: ${transaction.id}`);
+    logger.stores.offline.debug(`Added pending transaction: ${transaction.id}`);
     return transaction;
   },
 
@@ -337,9 +338,9 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     try {
       const transactions = await getAllPendingTransactions();
       set({ pendingTransactions: transactions });
-      console.log(`[OfflineStore] Loaded ${transactions.length} pending transactions`);
+      logger.stores.offline.debug(`Loaded ${transactions.length} pending transactions`);
     } catch (error) {
-      console.error('[OfflineStore] Failed to load pending transactions:', error);
+      logger.stores.offline.error('Failed to load pending transactions:', error);
     }
   },
 
@@ -349,7 +350,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
       pendingTransactions: state.pendingTransactions.filter((tx) => tx.id !== id),
     }));
     get().refreshStats();
-    console.log(`[OfflineStore] Removed pending transaction: ${id}`);
+    logger.stores.offline.debug(`Removed pending transaction: ${id}`);
   },
 
   markTransactionAsSynced: async (id) => {
@@ -358,7 +359,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
       pendingTransactions: state.pendingTransactions.filter((tx) => tx.id !== id),
     }));
     get().refreshStats();
-    console.log(`[OfflineStore] Marked transaction as synced: ${id}`);
+    logger.stores.offline.debug(`Marked transaction as synced: ${id}`);
   },
 
   incrementTransactionRetry: async (id, error) => {
@@ -375,13 +376,13 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
           : tx
       ),
     }));
-    console.log(`[OfflineStore] Updated retry count for transaction: ${id}`);
+    logger.stores.offline.debug(`Updated retry count for transaction: ${id}`);
   },
 
   clearSyncedTransactions: async () => {
     const count = await deleteSyncedTransactions();
     get().refreshStats();
-    console.log(`[OfflineStore] Cleared ${count} synced transactions`);
+    logger.stores.offline.debug(`Cleared ${count} synced transactions`);
     return count;
   },
 
@@ -393,7 +394,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     const wallet = await upsertCachedWallet(input);
     set({ currentWallet: wallet });
     get().refreshStats();
-    console.log(`[OfflineStore] Cached wallet: ${wallet.id}`);
+    logger.stores.offline.debug(`Cached wallet: ${wallet.id}`);
     return wallet;
   },
 
@@ -420,7 +421,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
         ? { ...state.currentWallet, balance: newBalance, updatedAt: new Date() }
         : state.currentWallet,
     }));
-    console.log(`[OfflineStore] Updated wallet balance: ${walletId} -> ${newBalance}`);
+    logger.stores.offline.debug(`Updated wallet balance: ${walletId} -> ${newBalance}`);
   },
 
   clearCachedWallet: async (walletId) => {
@@ -429,7 +430,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
       currentWallet: state.currentWallet?.id === walletId ? null : state.currentWallet,
     }));
     get().refreshStats();
-    console.log(`[OfflineStore] Cleared cached wallet: ${walletId}`);
+    logger.stores.offline.debug(`Cleared cached wallet: ${walletId}`);
   },
 
   // ============================================
@@ -439,7 +440,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
   cacheStands: async (stands) => {
     await upsertCachedStands(stands);
     get().refreshStats();
-    console.log(`[OfflineStore] Cached ${stands.length} stands`);
+    logger.stores.offline.debug(`Cached ${stands.length} stands`);
   },
 
   loadCachedStands: async (festivalId) => {
@@ -469,7 +470,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
   cacheProducts: async (products) => {
     await upsertCachedProducts(products);
     get().refreshStats();
-    console.log(`[OfflineStore] Cached ${products.length} products`);
+    logger.stores.offline.debug(`Cached ${products.length} products`);
   },
 
   loadCachedProducts: async (standId) => {
@@ -498,7 +499,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
   addToSyncQueue: async (input) => {
     const item = await createSyncQueueItem(input);
     get().refreshStats();
-    console.log(`[OfflineStore] Added to sync queue: ${item.id}`);
+    logger.stores.offline.debug(`Added to sync queue: ${item.id}`);
     return item;
   },
 
@@ -509,19 +510,19 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
   markSyncItemComplete: async (id) => {
     await completeSyncQueueItem(id);
     get().refreshStats();
-    console.log(`[OfflineStore] Sync item completed: ${id}`);
+    logger.stores.offline.debug(`Sync item completed: ${id}`);
   },
 
   markSyncItemFailed: async (id, error) => {
     await failSyncQueueItem(id, error);
     get().refreshStats();
-    console.log(`[OfflineStore] Sync item failed: ${id}`);
+    logger.stores.offline.debug(`Sync item failed: ${id}`);
   },
 
   cleanupCompletedSyncItems: async () => {
     const count = await deleteCompletedSyncItems();
     get().refreshStats();
-    console.log(`[OfflineStore] Cleaned up ${count} completed sync items`);
+    logger.stores.offline.debug(`Cleaned up ${count} completed sync items`);
     return count;
   },
 
@@ -538,7 +539,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
   cacheTransactions: async (transactions) => {
     await batchInsertCachedTransactions(transactions);
     get().refreshStats();
-    console.log(`[OfflineStore] Cached ${transactions.length} transactions`);
+    logger.stores.offline.debug(`Cached ${transactions.length} transactions`);
   },
 
   loadCachedTransactions: async (walletId, limit = 50, offset = 0) => {
@@ -579,9 +580,9 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
         syncError: null,
       });
       await get().refreshStats();
-      console.log('[OfflineStore] All data cleared');
+      logger.stores.offline.info('All data cleared');
     } catch (error) {
-      console.error('[OfflineStore] Failed to clear all data:', error);
+      logger.stores.offline.error('Failed to clear all data:', error);
       throw error;
     }
   },

@@ -41,6 +41,7 @@ import {
   parseError,
   delay,
 } from './retry';
+import { logger } from '@/lib/logger';
 
 // ============================================
 // Types
@@ -174,7 +175,7 @@ export class SyncQueue {
 
       this.isInitialized = true;
     } catch (error) {
-      console.error('Failed to initialize SyncQueue:', error);
+      logger.syncQueue.error('Failed to initialize SyncQueue:', error);
       throw error;
     }
   }
@@ -559,7 +560,7 @@ export class SyncQueue {
           await this.processOperation(operation);
         }
       } catch (error) {
-        console.error('Error in processing loop:', error);
+        logger.syncQueue.error('Error in processing loop:', error);
         await delay(5000); // Wait before retrying
       }
     }
@@ -572,7 +573,7 @@ export class SyncQueue {
     const handler = this.handlers.get(operation.type);
 
     if (!handler) {
-      console.warn(`No handler registered for operation type: ${operation.type}`);
+      logger.syncQueue.warn(`No handler registered for operation type: ${operation.type}`);
       await this.markOperationFailed(
         operation,
         'NO_HANDLER',
@@ -885,7 +886,7 @@ export class SyncQueue {
       try {
         listener(event, data);
       } catch (error) {
-        console.error('Error in queue event listener:', error);
+        logger.syncQueue.error('Error in queue event listener:', error);
       }
     }
   }

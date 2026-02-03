@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -18,7 +18,9 @@ import {
   Users,
   Grid3X3,
   List,
+  Loader2,
 } from 'lucide-react'
+import { artistsApi, type ArtistWithDetails } from '@/lib/api/lineup'
 
 // Mock data for demonstration
 const mockArtists = [
@@ -137,13 +139,48 @@ export default function ArtistsPage() {
   const params = useParams()
   const festivalId = params.id as string
 
+  const [artists, setArtists] = useState(mockArtists)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  // Load artists from API
+  useEffect(() => {
+    const loadArtists = async () => {
+      setIsLoading(true)
+      try {
+        const data = await artistsApi.list(festivalId)
+        if (data && data.length > 0) {
+          setArtists(data.map(a => ({
+            id: a.id,
+            name: a.name,
+            genre: a.genre || '',
+            type: (a.type as 'DJ' | 'BAND' | 'SOLO') || 'SOLO',
+            bio: a.bio || '',
+            imageUrl: a.imageUrl || '/api/placeholder/400/400',
+            performanceCount: 0, // Would need to be fetched separately or included in API
+            socialLinks: {
+              instagram: a.socialLinks?.instagram || '',
+              spotify: a.socialLinks?.spotify || '',
+              website: a.socialLinks?.website || '',
+            },
+          })))
+        }
+      } catch (error) {
+        console.error('Failed to load artists:', error)
+        // Keep mock data on error
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadArtists()
+  }, [festivalId])
 
   // Filter artists
-  const filteredArtists = mockArtists.filter((artist) => {
+  const filteredArtists = artists.filter((artist) => {
     const matchesSearch =
       artist.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       artist.genre?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -151,9 +188,19 @@ export default function ArtistsPage() {
     return matchesSearch && matchesType
   })
 
-  const handleDelete = (artistId: string) => {
-    // TODO: Implement actual delete via API
-    setDeleteConfirm(null)
+  const handleDelete = async (artistId: string) => {
+    setIsDeleting(true)
+    try {
+      await artistsApi.delete(festivalId, artistId)
+      // Remove from local state on success
+      setArtists((prev) => prev.filter((a) => a.id !== artistId))
+      setDeleteConfirm(null)
+    } catch (error) {
+      console.error('Failed to delete artist:', error)
+      alert('Erreur lors de la suppression de l\'artiste')
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   return (
@@ -179,6 +226,13 @@ export default function ArtistsPage() {
         </Link>
       </div>
 
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-lg border bg-white p-4">
@@ -188,7 +242,7 @@ export default function ArtistsPage() {
             </div>
             <div>
               <p className="text-sm text-gray-500">Total artistes</p>
-              <p className="text-2xl font-bold">{mockArtists.length}</p>
+              <p className="text-2xl font-bold">{artists.length}</p>
             </div>
           </div>
         </div>
@@ -200,7 +254,7 @@ export default function ArtistsPage() {
             <div>
               <p className="text-sm text-gray-500">Groupes</p>
               <p className="text-2xl font-bold">
-                {mockArtists.filter((a) => a.type === 'BAND').length}
+                {artists.filter((a) => a.type === 'BAND').length}
               </p>
             </div>
           </div>
@@ -213,7 +267,7 @@ export default function ArtistsPage() {
             <div>
               <p className="text-sm text-gray-500">DJs</p>
               <p className="text-2xl font-bold">
-                {mockArtists.filter((a) => a.type === 'DJ').length}
+                {artists.filter((a) => a.type === 'DJ').length}
               </p>
             </div>
           </div>
@@ -226,7 +280,7 @@ export default function ArtistsPage() {
             <div>
               <p className="text-sm text-gray-500">Solo</p>
               <p className="text-2xl font-bold">
-                {mockArtists.filter((a) => a.type === 'SOLO').length}
+                {artists.filter((a) => a.type === 'SOLO').length}
               </p>
             </div>
           </div>
@@ -402,8 +456,10 @@ export default function ArtistsPage() {
                     </button>
                     <button
                       onClick={() => handleDelete(artist.id)}
-                      className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
+                      disabled={isDeleting}
+                      className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 flex items-center gap-1"
                     >
+                      {isDeleting && <Loader2 className="h-3 w-3 animate-spin" />}
                       Supprimer
                     </button>
                   </div>

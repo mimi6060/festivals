@@ -342,9 +342,66 @@ export default function StaffListPage() {
     }
   }
 
+  // State for edit modal
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [editingMember, setEditingMember] = useState<StaffMember | null>(null)
+  const [editForm, setEditForm] = useState<{
+    role: StaffRole
+    status: StaffStatus
+    notes: string
+  }>({
+    role: 'OPERATOR',
+    status: 'ACTIVE',
+    notes: '',
+  })
+  const [isUpdating, setIsUpdating] = useState(false)
+
   // Edit staff
   const handleEdit = (member: StaffMember) => {
-    // TODO: Open edit modal
+    setEditingMember(member)
+    setEditForm({
+      role: member.role,
+      status: member.status,
+      notes: member.notes || '',
+    })
+    setEditModalOpen(true)
+  }
+
+  // Save edited staff
+  const handleSaveEdit = async () => {
+    if (!editingMember) return
+
+    setIsUpdating(true)
+    try {
+      const updatedMember = await staffApi.update(festivalId, editingMember.id, {
+        role: editForm.role,
+        status: editForm.status,
+        notes: editForm.notes || undefined,
+      })
+      setStaff((prev) =>
+        prev.map((s) =>
+          s.id === editingMember.id
+            ? { ...s, role: editForm.role, status: editForm.status, notes: editForm.notes }
+            : s
+        )
+      )
+      setEditModalOpen(false)
+      setEditingMember(null)
+    } catch (error) {
+      console.error('Failed to update staff member:', error)
+      // Update local state for demo
+      setStaff((prev) =>
+        prev.map((s) =>
+          s.id === editingMember.id
+            ? { ...s, role: editForm.role, status: editForm.status, notes: editForm.notes }
+            : s
+        )
+      )
+      setEditModalOpen(false)
+      setEditingMember(null)
+    } finally {
+      setIsUpdating(false)
+    }
   }
 
   // Delete staff
@@ -653,6 +710,75 @@ export default function StaffListPage() {
         onInvite={handleInvite}
         isLoading={inviting}
       />
+
+      {/* Edit Staff Modal */}
+      {editModalOpen && editingMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+            <div className="border-b p-6">
+              <h2 className="text-xl font-semibold">Modifier le membre</h2>
+              <p className="mt-1 text-sm text-gray-500">{editingMember.user.name}</p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Role</label>
+                <Select
+                  options={roleOptions.filter(o => o.value !== '')}
+                  value={editForm.role}
+                  onValueChange={(value) => setEditForm({ ...editForm, role: value as StaffRole })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Statut</label>
+                <Select
+                  options={statusOptions.filter(o => o.value !== '')}
+                  value={editForm.status}
+                  onValueChange={(value) => setEditForm({ ...editForm, status: value as StaffStatus })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Notes</label>
+                <textarea
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  rows={3}
+                  className="mt-1 w-full rounded-lg border px-3 py-2 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Notes internes sur ce membre..."
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditModalOpen(false)
+                    setEditingMember(null)
+                  }}
+                >
+                  Annuler
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleSaveEdit}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                      Enregistrement...
+                    </>
+                  ) : (
+                    'Enregistrer'
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

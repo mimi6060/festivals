@@ -16,22 +16,44 @@ import {
   Notification,
   NotificationType,
 } from '@/stores/notificationStore';
-import { fetchNotifications, markAllAsReadOnBackend, deleteNotificationOnBackend } from '@/lib/notifications';
+import { useNotifications } from '@/hooks/useNotifications';
+import {
+  fetchNotifications,
+  markAllNotificationsAsRead,
+  deleteNotification as deleteNotificationApi,
+  markNotificationAsRead,
+} from '@/services/notifications';
 import { NotificationCard } from '@/components/notifications/NotificationCard';
 
 export default function NotificationsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const notifications = useNotificationStore((state) => state.notifications);
   const unreadCount = useNotificationStore(selectUnreadCount);
-  const markAllAsRead = useNotificationStore((state) => state.markAllAsRead);
-  const markAsRead = useNotificationStore((state) => state.markAsRead);
+  const storeMarkAllAsRead = useNotificationStore((state) => state.markAllAsRead);
+  const storeMarkAsRead = useNotificationStore((state) => state.markAsRead);
   const removeNotification = useNotificationStore((state) => state.removeNotification);
   const setNotifications = useNotificationStore((state) => state.setNotifications);
 
+  // Use the notifications hook for deep linking
+  const { markAsRead: hookMarkAsRead } = useNotifications();
+
   const loadNotifications = useCallback(async () => {
-    const data = await fetchNotifications();
-    if (data.length > 0) {
-      setNotifications(data);
+    try {
+      const response = await fetchNotifications(1, 50);
+      if (response.notifications.length > 0) {
+        const formattedNotifications: Notification[] = response.notifications.map((n) => ({
+          id: n.id,
+          type: n.type,
+          title: n.title,
+          body: n.body,
+          data: n.data,
+          read: n.read,
+          createdAt: n.createdAt,
+        }));
+        setNotifications(formattedNotifications);
+      }
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
     }
   }, [setNotifications]);
 
@@ -46,19 +68,21 @@ export default function NotificationsScreen() {
   };
 
   const handleMarkAllAsRead = async () => {
-    markAllAsRead();
-    await markAllAsReadOnBackend();
+    storeMarkAllAsRead();
+    await markAllNotificationsAsRead();
   };
 
-  const handleNotificationPress = (notification: Notification) => {
-    // Mark as read
-    markAsRead(notification.id);
+  const handleNotificationPress = async (notification: Notification) => {
+    // Mark as read locally and on backend
+    storeMarkAsRead(notification.id);
+    await markNotificationAsRead(notification.id);
 
     // Navigate based on type
+    const data = notification.data as Record<string, unknown>;
     switch (notification.type) {
       case 'ticket':
-        if (notification.data?.ticketId) {
-          router.push(`/ticket/${notification.data.ticketId}`);
+        if (data?.ticketId) {
+          router.push(`/ticket/${data.ticketId}`);
         } else {
           router.push('/(tabs)/tickets');
         }
@@ -67,19 +91,35 @@ export default function NotificationsScreen() {
         router.push('/(tabs)/wallet');
         break;
       case 'lineup':
-        router.push('/(tabs)/program');
+        if (data?.artistId) {
+          router.push(`/artist/${data.artistId}`);
+        } else {
+          router.push('/(tabs)/program');
+        }
         break;
       case 'sos':
         router.push('/sos');
         break;
+      case 'announcement':
+        // Show announcement details
+        Alert.alert(notification.title, notification.body);
+        break;
       default:
-        // Stay on notifications screen
+        // Handle custom navigation if screen is specified
+        if (data?.screen && typeof data.screen === 'string') {
+          try {
+            router.push(data.screen as any);
+          } catch {
+            // Stay on notifications screen
+          }
+        }
         break;
     }
   };
 
-  const handleMarkAsRead = (id: string) => {
-    markAsRead(id);
+  const handleMarkAsRead = async (id: string) => {
+    storeMarkAsRead(id);
+    await markNotificationAsRead(id);
   };
 
   const handleDelete = async (id: string) => {
@@ -93,7 +133,7 @@ export default function NotificationsScreen() {
           style: 'destructive',
           onPress: async () => {
             removeNotification(id);
-            await deleteNotificationOnBackend(id);
+            await deleteNotificationApi(id);
           },
         },
       ]

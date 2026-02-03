@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -16,6 +16,7 @@ import {
   Check,
   AlertCircle,
 } from 'lucide-react'
+import { performancesApi, artistsApi, stagesApi, type CreatePerformanceRequest } from '@/lib/api/lineup'
 
 // Mock data for demonstration
 const mockFestival = {
@@ -139,6 +140,44 @@ export default function NewPerformancePage() {
   const [artistSearch, setArtistSearch] = useState('')
   const [isArtistDropdownOpen, setIsArtistDropdownOpen] = useState(false)
   const [errors, setErrors] = useState<Partial<Record<keyof PerformanceFormData, string>>>({})
+  const [artists, setArtists] = useState(mockArtists)
+  const [stages, setStages] = useState(mockStages)
+  const [isLoadingData, setIsLoadingData] = useState(true)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // Load artists and stages from API
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoadingData(true)
+      try {
+        const [artistsData, stagesData] = await Promise.all([
+          artistsApi.list(festivalId),
+          stagesApi.list(festivalId),
+        ])
+        if (artistsData && artistsData.length > 0) {
+          setArtists(artistsData.map(a => ({
+            id: a.id,
+            name: a.name,
+            genre: a.genre || '',
+            type: a.type || 'SOLO',
+          })))
+        }
+        if (stagesData && stagesData.length > 0) {
+          setStages(stagesData.map(s => ({
+            id: s.id,
+            name: s.name,
+            capacity: s.capacity || 0,
+          })))
+        }
+      } catch (error) {
+        console.error('Failed to load data:', error)
+        // Keep mock data on error
+      } finally {
+        setIsLoadingData(false)
+      }
+    }
+    loadData()
+  }, [festivalId])
 
   const festivalDates = useMemo(
     () => getDatesInRange(mockFestival.startDate, mockFestival.endDate),
@@ -149,17 +188,17 @@ export default function NewPerformancePage() {
 
   // Filter artists based on search
   const filteredArtists = useMemo(() => {
-    if (!artistSearch) return mockArtists
-    return mockArtists.filter(
+    if (!artistSearch) return artists
+    return artists.filter(
       (artist) =>
         artist.name.toLowerCase().includes(artistSearch.toLowerCase()) ||
         artist.genre?.toLowerCase().includes(artistSearch.toLowerCase())
     )
-  }, [artistSearch])
+  }, [artistSearch, artists])
 
   // Get selected artist and stage
-  const selectedArtist = mockArtists.find((a) => a.id === formData.artistId)
-  const selectedStage = mockStages.find((s) => s.id === formData.stageId)
+  const selectedArtist = artists.find((a) => a.id === formData.artistId)
+  const selectedStage = stages.find((s) => s.id === formData.stageId)
 
   // Check for conflicts
   const conflicts = useMemo(() => {
@@ -175,6 +214,7 @@ export default function NewPerformancePage() {
       newEnd.setDate(newEnd.getDate() + 1)
     }
 
+    // Note: In production, this would check against real performances from API
     return existingPerformances.filter((p) => {
       // Same stage conflict
       if (p.stageId === formData.stageId) {
@@ -251,6 +291,7 @@ export default function NewPerformancePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSubmitError(null)
 
     if (!validateForm()) {
       return
@@ -267,21 +308,35 @@ export default function NewPerformancePage() {
     setIsSubmitting(true)
 
     try {
-      // TODO: Implement actual API call
-      // await performancesApi.create(festivalId, {
-      //   artistId: formData.artistId,
-      //   stageId: formData.stageId,
-      //   startTime: `${formData.date}T${formData.startTime}:00`,
-      //   endTime: `${formData.date}T${formData.endTime}:00`,
-      //   status: formData.status,
-      // })
+      // Build ISO datetime strings
+      // Handle times after midnight (should be next day)
+      const startHour = parseInt(formData.startTime.split(':')[0])
+      const endHour = parseInt(formData.endTime.split(':')[0])
 
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      let startDate = formData.date
+      let endDate = formData.date
+
+      // If end time is earlier than start time (crosses midnight), adjust end date
+      if (endHour < startHour) {
+        const nextDay = new Date(formData.date)
+        nextDay.setDate(nextDay.getDate() + 1)
+        endDate = nextDay.toISOString().split('T')[0]
+      }
+
+      const requestData: CreatePerformanceRequest = {
+        artistId: formData.artistId,
+        stageId: formData.stageId,
+        startTime: `${startDate}T${formData.startTime}:00`,
+        endTime: `${endDate}T${formData.endTime}:00`,
+        status: formData.status,
+      }
+
+      await performancesApi.create(festivalId, requestData)
 
       router.push(`/festivals/${festivalId}/lineup`)
     } catch (error) {
       console.error('Error creating performance:', error)
+      setSubmitError('Erreur lors de la creation de la performance. Veuillez reessayer.')
     } finally {
       setIsSubmitting(false)
     }
@@ -415,7 +470,7 @@ export default function NewPerformancePage() {
               </label>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                {mockStages.map((stage) => (
+                {stages.map((stage) => (
                   <button
                     key={stage.id}
                     type="button"
@@ -607,6 +662,13 @@ export default function NewPerformancePage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
+          {/* Error message */}
+          {submitError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {submitError}
+            </div>
+          )}
+
           {/* Summary */}
           <div className="rounded-lg border bg-white p-6">
             <h2 className="mb-4 text-lg font-semibold text-gray-900">Resume</h2>
@@ -693,8 +755,8 @@ export default function NewPerformancePage() {
                   </p>
                   <ul className="mt-2 text-sm text-yellow-700 list-disc list-inside">
                     {conflicts.map((conflict, index) => {
-                      const artist = mockArtists.find((a) => a.id === conflict.artistId)
-                      const stage = mockStages.find((s) => s.id === conflict.stageId)
+                      const artist = artists.find((a) => a.id === conflict.artistId)
+                      const stage = stages.find((s) => s.id === conflict.stageId)
                       return (
                         <li key={index}>
                           {artist?.name} - {stage?.name}

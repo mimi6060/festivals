@@ -6,6 +6,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { logger } from '@/lib/logger';
 
 // Conflict resolution strategies
 export type ConflictResolutionStrategy =
@@ -203,7 +204,7 @@ export class ConflictResolver {
       if (!stored) return [];
       return JSON.parse(stored);
     } catch (error) {
-      console.error('[ConflictResolver] Failed to read conflict log:', error);
+      logger.conflictResolver.error('Failed to read conflict log:', error);
       return [];
     }
   }
@@ -239,8 +240,8 @@ export class ConflictResolver {
    * Server wins - use server version
    */
   private resolveServerWins(conflict: ConflictData): unknown {
-    console.log(
-      `[ConflictResolver] Server wins for ${conflict.entityType}:${conflict.entityId}`
+    logger.conflictResolver.debug(
+      `Server wins for ${conflict.entityType}:${conflict.entityId}`
     );
     return conflict.serverVersion;
   }
@@ -249,8 +250,8 @@ export class ConflictResolver {
    * Client wins - use local version
    */
   private resolveClientWins(conflict: ConflictData): unknown {
-    console.log(
-      `[ConflictResolver] Client wins for ${conflict.entityType}:${conflict.entityId}`
+    logger.conflictResolver.debug(
+      `Client wins for ${conflict.entityType}:${conflict.entityId}`
     );
     return conflict.localVersion;
   }
@@ -259,8 +260,8 @@ export class ConflictResolver {
    * Merge - combine local and server data
    */
   private resolveMerge(conflict: ConflictData): unknown {
-    console.log(
-      `[ConflictResolver] Merging ${conflict.entityType}:${conflict.entityId}`
+    logger.conflictResolver.debug(
+      `Merging ${conflict.entityType}:${conflict.entityId}`
     );
 
     const local = conflict.localVersion as Record<string, unknown> | undefined;
@@ -290,14 +291,14 @@ export class ConflictResolver {
       : Date.now();
 
     if (localTime > serverTime) {
-      console.log(
-        `[ConflictResolver] Local wins (newer) for ${conflict.entityType}:${conflict.entityId}`
+      logger.conflictResolver.debug(
+        `Local wins (newer) for ${conflict.entityType}:${conflict.entityId}`
       );
       return conflict.localVersion;
     }
 
-    console.log(
-      `[ConflictResolver] Server wins (newer) for ${conflict.entityType}:${conflict.entityId}`
+    logger.conflictResolver.debug(
+      `Server wins (newer) for ${conflict.entityType}:${conflict.entityId}`
     );
     return conflict.serverVersion;
   }
@@ -420,11 +421,11 @@ export class ConflictResolver {
 
       await AsyncStorage.setItem(CONFLICT_LOG_KEY, JSON.stringify(log));
 
-      console.log(
-        `[ConflictResolver] Logged conflict: ${resolved.conflict.entityType}:${resolved.conflict.entityId} -> ${resolved.resolution}`
+      logger.conflictResolver.debug(
+        `Logged conflict: ${resolved.conflict.entityType}:${resolved.conflict.entityId} -> ${resolved.resolution}`
       );
     } catch (error) {
-      console.error('[ConflictResolver] Failed to log conflict:', error);
+      logger.conflictResolver.error('Failed to log conflict:', error);
     }
   }
 }

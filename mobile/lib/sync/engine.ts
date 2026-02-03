@@ -11,6 +11,7 @@ import NetInfo, { NetInfoState, NetInfoSubscription } from '@react-native-commun
 import { AppState, AppStateStatus } from 'react-native';
 import { SyncManager } from './manager';
 import { ConflictResolver, ConflictResolutionStrategy } from './conflict';
+import { logger } from '@/lib/logger';
 
 // Sync states
 export type SyncState = 'IDLE' | 'SYNCING' | 'ERROR' | 'OFFLINE';
@@ -196,11 +197,11 @@ export class SyncEngine {
    */
   public async initialize(): Promise<void> {
     if (this.isInitialized) {
-      console.warn('[SyncEngine] Already initialized');
+      logger.syncEngine.warn('Already initialized');
       return;
     }
 
-    console.log('[SyncEngine] Initializing...');
+    logger.syncEngine.info('Initializing...');
 
     // Set up network listener
     this.netInfoSubscription = NetInfo.addEventListener(this.handleNetworkChange.bind(this));
@@ -216,7 +217,7 @@ export class SyncEngine {
     await this.syncManager.initialize();
 
     this.isInitialized = true;
-    console.log('[SyncEngine] Initialized successfully');
+    logger.syncEngine.info('Initialized successfully');
   }
 
   /**
@@ -224,7 +225,7 @@ export class SyncEngine {
    * Call this on app cleanup
    */
   public shutdown(): void {
-    console.log('[SyncEngine] Shutting down...');
+    logger.syncEngine.info('Shutting down...');
 
     // Cancel any ongoing sync
     this.cancelSync();
@@ -244,7 +245,7 @@ export class SyncEngine {
     this.eventListeners.clear();
 
     this.isInitialized = false;
-    console.log('[SyncEngine] Shutdown complete');
+    logger.syncEngine.info('Shutdown complete');
   }
 
   /**
@@ -288,7 +289,7 @@ export class SyncEngine {
   public async sync(options: SyncOptions = {}): Promise<SyncResult> {
     // If already syncing, return the current sync promise
     if (this.currentSyncPromise && !options.force) {
-      console.log('[SyncEngine] Sync already in progress, waiting for completion...');
+      logger.syncEngine.debug('Sync already in progress, waiting for completion...');
       return this.currentSyncPromise;
     }
 
@@ -299,7 +300,7 @@ export class SyncEngine {
 
     // Check minimum sync interval
     if (!options.force && this.shouldThrottle()) {
-      console.log('[SyncEngine] Sync throttled, using cached data');
+      logger.syncEngine.debug('Sync throttled, using cached data');
       return this.createThrottledResult();
     }
 
@@ -322,7 +323,7 @@ export class SyncEngine {
       return;
     }
 
-    console.log('[SyncEngine] Cancelling sync...');
+    logger.syncEngine.info('Cancelling sync...');
     this.syncManager.cancel();
     this.setState('IDLE');
     this.emitEvent('SYNC_CANCELLED');
@@ -357,7 +358,7 @@ export class SyncEngine {
   private async performSync(options: SyncOptions): Promise<SyncResult> {
     const startTime = Date.now();
 
-    console.log('[SyncEngine] Starting sync...', { options });
+    logger.syncEngine.info('Starting sync...', { options });
     this.setState('SYNCING');
     this.emitEvent('SYNC_STARTED', { options });
 
@@ -381,7 +382,7 @@ export class SyncEngine {
       this.addToHistory(result);
 
       this.emitEvent('SYNC_COMPLETED', result);
-      console.log('[SyncEngine] Sync completed', {
+      logger.syncEngine.info('Sync completed', {
         duration: result.duration,
         synced: result.syncedEntities
       });
@@ -390,12 +391,12 @@ export class SyncEngine {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[SyncEngine] Sync failed:', errorMessage);
+      logger.syncEngine.error('Sync failed:', errorMessage);
 
       // Handle retry
       if (this.retryCount < this.config.maxRetryAttempts) {
         this.retryCount++;
-        console.log(`[SyncEngine] Retrying sync (attempt ${this.retryCount}/${this.config.maxRetryAttempts})`);
+        logger.syncEngine.info(`Retrying sync (attempt ${this.retryCount}/${this.config.maxRetryAttempts})`);
 
         await this.delay(this.config.retryDelay);
         return this.performSync(options);
@@ -530,7 +531,7 @@ export class SyncEngine {
 
     if (isOnline) {
       if (wasOffline) {
-        console.log('[SyncEngine] Network restored');
+        logger.syncEngine.info('Network restored');
         this.setState('IDLE');
         this.emitEvent('NETWORK_ONLINE');
 
@@ -538,13 +539,13 @@ export class SyncEngine {
         if (this.config.autoSyncOnOnline) {
           // Delay to ensure network is stable
           setTimeout(() => {
-            this.sync({ priority: 'HIGH' }).catch(console.error);
+            this.sync({ priority: 'HIGH' }).catch((err) => logger.syncEngine.error('Auto-sync failed:', err));
           }, 1000);
         }
       }
     } else {
       if (!wasOffline) {
-        console.log('[SyncEngine] Network lost');
+        logger.syncEngine.info('Network lost');
         this.setState('OFFLINE');
         this.emitEvent('NETWORK_OFFLINE');
       }
@@ -553,11 +554,11 @@ export class SyncEngine {
 
   private handleAppStateChange(nextAppState: AppStateStatus): void {
     if (nextAppState === 'active' && this.config.autoSyncOnForeground) {
-      console.log('[SyncEngine] App came to foreground');
+      logger.syncEngine.debug('App came to foreground');
 
       // Sync if we haven't synced recently
       if (!this.shouldThrottle()) {
-        this.sync({ priority: 'NORMAL' }).catch(console.error);
+        this.sync({ priority: 'NORMAL' }).catch((err) => logger.syncEngine.error('Foreground sync failed:', err));
       }
     }
   }
@@ -569,7 +570,7 @@ export class SyncEngine {
 
   private setState(newState: SyncState): void {
     if (this.state !== newState) {
-      console.log(`[SyncEngine] State: ${this.state} -> ${newState}`);
+      logger.syncEngine.debug(`State: ${this.state} -> ${newState}`);
       this.state = newState;
     }
   }
@@ -581,7 +582,7 @@ export class SyncEngine {
         try {
           listener(event, data);
         } catch (error) {
-          console.error(`[SyncEngine] Error in event listener for ${event}:`, error);
+          logger.syncEngine.error(`Error in event listener for ${event}:`, error);
         }
       });
     }

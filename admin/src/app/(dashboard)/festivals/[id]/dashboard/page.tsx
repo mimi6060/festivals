@@ -18,13 +18,15 @@ import {
   RefreshCw,
   ArrowLeft,
   Radio,
+  Activity,
 } from 'lucide-react'
 import { LiveStats } from '@/components/dashboard/LiveStats'
 import { LiveTransactions } from '@/components/dashboard/LiveTransactions'
 import { LiveRevenue } from '@/components/dashboard/LiveRevenue'
 import { RevenueChart } from '@/components/dashboard/RevenueChart'
 import { ActivityFeed } from '@/components/dashboard/ActivityFeed'
-import { useDashboardWebSocket } from '@/hooks/useWebSocket'
+import { ConnectionStatus, ConnectionBadge, LiveIndicator } from '@/components/dashboard/ConnectionStatus'
+import { useRealtimeDashboard } from '@/hooks/useRealtimeDashboard'
 import {
   statsApi,
   statsQueryKeys,
@@ -40,25 +42,42 @@ export default function FestivalDashboardPage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
   const [isLiveMode, setIsLiveMode] = useState(true)
 
-  // WebSocket connection for real-time updates
+  // Real-time dashboard hook with all features
   const {
-    status: wsStatus,
-    stats: liveStats,
+    stats: realtimeStats,
+    animatedRevenue,
+    isRevenueAnimating,
     transactions: liveTransactions,
+    newTransactionsCount,
     alerts: liveAlerts,
-    revenuePoints,
+    unreadAlertsCount,
+    revenueHistory,
+    connection,
+    isLive,
+    isLoading: realtimeLoading,
     reconnect,
-  } = useDashboardWebSocket(festivalId, isLiveMode)
+    clearTransactions,
+    markAlertsRead,
+    clearAlerts,
+    refresh: refreshRealtime,
+  } = useRealtimeDashboard({
+    festivalId,
+    enabled: isLiveMode,
+    autoReconnect: true,
+    maxReconnectAttempts: 10,
+    reconnectDelay: 2000,
+    bufferUpdates: true,
+  })
 
   // Fetch festival stats (fallback when WebSocket is not connected)
   const {
-    data: stats,
+    data: apiStats,
     isLoading: statsLoading,
     refetch: refetchStats,
   } = useQuery({
     queryKey: statsQueryKeys.festival(festivalId),
     queryFn: () => statsApi.getFestivalStats(festivalId),
-    refetchInterval: isLiveMode && wsStatus === 'connected' ? false : 30000,
+    refetchInterval: isLiveMode && isLive ? false : 30000,
   })
 
   // Fetch revenue data for historical chart
@@ -71,7 +90,7 @@ export default function FestivalDashboardPage() {
   const { data: activities, isLoading: activitiesLoading } = useQuery({
     queryKey: statsQueryKeys.activities(festivalId),
     queryFn: () => statsApi.getRecentActivities(festivalId, 15),
-    refetchInterval: isLiveMode && wsStatus === 'connected' ? false : 15000,
+    refetchInterval: isLiveMode && isLive ? false : 15000,
   })
 
   // Fetch top products
@@ -90,41 +109,78 @@ export default function FestivalDashboardPage() {
   const { data: apiAlerts, isLoading: alertsLoading } = useQuery({
     queryKey: statsQueryKeys.alerts(festivalId),
     queryFn: () => statsApi.getAlerts(festivalId),
-    refetchInterval: isLiveMode && wsStatus === 'connected' ? false : 10000,
+    refetchInterval: isLiveMode && isLive ? false : 10000,
   })
 
   // Use live alerts if available, otherwise fallback to API
   const displayAlerts = liveAlerts.length > 0 ? liveAlerts : apiAlerts
 
+  // Convert stats to WebSocket format for LiveStats component
+  const convertedStats = realtimeStats.lastUpdated
+    ? {
+        total_revenue: realtimeStats.totalRevenue,
+        revenue_change: realtimeStats.revenueChange,
+        tickets_sold: realtimeStats.ticketsSold,
+        tickets_used: realtimeStats.ticketsUsed,
+        active_wallets: realtimeStats.activeWallets,
+        active_users: realtimeStats.activeUsers,
+        today_transactions: realtimeStats.todayTransactions,
+        transaction_volume: realtimeStats.transactionVolume,
+        average_wallet_balance: realtimeStats.averageWalletBalance,
+        entries_last_hour: realtimeStats.entriesLastHour,
+        timestamp: realtimeStats.lastUpdated?.toISOString() || new Date().toISOString(),
+      }
+    : apiStats
+      ? {
+          total_revenue: apiStats.totalRevenue,
+          revenue_change: apiStats.revenueChange,
+          tickets_sold: apiStats.ticketsSold,
+          tickets_used: apiStats.ticketsUsed,
+          active_wallets: apiStats.activeWallets,
+          active_users: apiStats.activeWallets,
+          today_transactions: apiStats.todayTransactions,
+          transaction_volume: apiStats.transactionVolume,
+          average_wallet_balance: apiStats.averageWalletBalance,
+          entries_last_hour: 0,
+          timestamp: new Date().toISOString(),
+        }
+      : null
+
+  // Convert live transactions to the format expected by LiveTransactions
+  const formattedLiveTransactions = liveTransactions.map((tx) => ({
+    id: tx.id,
+    type: tx.type,
+    amount: tx.amount,
+    wallet_id: tx.walletId,
+    stand_name: tx.standName,
+    product_name: tx.productName,
+    staff_name: tx.staffName,
+    timestamp: tx.timestamp.toISOString(),
+  }))
+
+  // Convert live revenue history for chart
+  const liveRevenuePoints = revenueHistory.map((point) => ({
+    timestamp: point.timestamp.toISOString(),
+    revenue: point.revenue,
+    label: point.label,
+  }))
+
   const handleRefresh = useCallback(() => {
     refetchStats()
     setLastRefresh(new Date())
-    if (wsStatus !== 'connected') {
+    if (!isLive) {
       reconnect()
     }
-  }, [refetchStats, wsStatus, reconnect])
+  }, [refetchStats, isLive, reconnect])
 
   const toggleLiveMode = useCallback(() => {
     setIsLiveMode((prev) => !prev)
   }, [])
 
-  // Convert API stats to WebSocket format for LiveStats component
-  const convertedStats = liveStats || (stats ? {
-    total_revenue: stats.totalRevenue,
-    revenue_change: stats.revenueChange,
-    tickets_sold: stats.ticketsSold,
-    tickets_used: stats.ticketsUsed,
-    active_wallets: stats.activeWallets,
-    today_transactions: stats.todayTransactions,
-    transaction_volume: stats.transactionVolume,
-    average_wallet_balance: stats.averageWalletBalance,
-    entries_last_hour: 0,
-    timestamp: new Date().toISOString(),
-  } : null)
-
-  const getAlertIcon = (type: Alert['type']) => {
+  const getAlertIcon = (type: string) => {
     switch (type) {
       case 'error':
+      case 'critical':
         return AlertCircle
       case 'warning':
         return AlertCircle
@@ -138,6 +194,7 @@ export default function FestivalDashboardPage() {
   const getAlertColor = (type: string) => {
     switch (type) {
       case 'error':
+      case 'critical':
         return 'border-red-200 bg-red-50 text-red-800'
       case 'warning':
         return 'border-yellow-200 bg-yellow-50 text-yellow-800'
@@ -160,6 +217,8 @@ export default function FestivalDashboardPage() {
             <ArrowLeft className="h-4 w-4" />
             Retour
           </Link>
+          {/* Connection Badge */}
+          <ConnectionBadge state={connection.state} />
         </div>
         <div className="flex items-center gap-4">
           {/* Live Mode Toggle */}
@@ -188,22 +247,67 @@ export default function FestivalDashboardPage() {
         </div>
       </div>
 
+      {/* Connection Status Banner (when not connected in live mode) */}
+      {isLiveMode && !isLive && (
+        <ConnectionStatus
+          state={connection.state}
+          reconnectAttempts={connection.reconnectAttempts}
+          maxReconnectAttempts={10}
+          onReconnect={reconnect}
+          variant="full"
+        />
+      )}
+
       {/* Alerts */}
       {displayAlerts && displayAlerts.length > 0 && (
         <div className="space-y-2">
-          {displayAlerts.map((alert) => {
-            const AlertIcon = getAlertIcon(alert.type as Alert['type'])
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-gray-700">
+              Alertes {unreadAlertsCount > 0 && (
+                <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                  {unreadAlertsCount} non lue{unreadAlertsCount > 1 ? 's' : ''}
+                </span>
+              )}
+            </h3>
+            {liveAlerts.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={markAlertsRead}
+                  className="text-xs text-gray-500 hover:text-gray-700"
+                >
+                  Marquer comme lues
+                </button>
+                <button
+                  onClick={clearAlerts}
+                  className="text-xs text-gray-500 hover:text-gray-700"
+                >
+                  Effacer
+                </button>
+              </div>
+            )}
+          </div>
+          {displayAlerts.slice(0, 3).map((alert) => {
+            const AlertIcon = getAlertIcon(alert.type)
+            const isNew = 'isRead' in alert && !alert.isRead
             return (
               <div
                 key={alert.id}
                 className={cn(
-                  'flex items-start gap-3 rounded-lg border p-4',
-                  getAlertColor(alert.type)
+                  'flex items-start gap-3 rounded-lg border p-4 transition-all',
+                  getAlertColor(alert.type),
+                  isNew && 'ring-2 ring-primary/20'
                 )}
               >
                 <AlertIcon className="mt-0.5 h-5 w-5 flex-shrink-0" />
                 <div className="flex-1">
-                  <p className="font-medium">{alert.title}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">{alert.title}</p>
+                    {isNew && (
+                      <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
+                        Nouveau
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm opacity-90">{alert.message}</p>
                 </div>
                 {(('actionUrl' in alert && alert.actionUrl) || ('action_url' in alert && (alert as {action_url?: string}).action_url)) ? (
@@ -223,8 +327,8 @@ export default function FestivalDashboardPage() {
       {/* Live Stats Cards */}
       <LiveStats
         stats={convertedStats}
-        connectionStatus={wsStatus}
-        loading={statsLoading && !liveStats}
+        connectionStatus={connection.state}
+        loading={(statsLoading || realtimeLoading) && !convertedStats}
         icons={{
           revenue: DollarSign,
           tickets: Ticket,
@@ -233,13 +337,52 @@ export default function FestivalDashboardPage() {
         }}
       />
 
+      {/* Animated Revenue Counter (when live) */}
+      {isLiveMode && isLive && realtimeStats.lastUpdated && (
+        <div className="rounded-lg border bg-gradient-to-r from-green-50 to-emerald-50 p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                'flex h-12 w-12 items-center justify-center rounded-full bg-green-100 transition-transform',
+                isRevenueAnimating && 'scale-110'
+              )}>
+                <Activity className={cn(
+                  'h-6 w-6 text-green-600',
+                  isRevenueAnimating && 'animate-pulse'
+                )} />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-green-700">Revenue en direct</p>
+                <p className={cn(
+                  'text-3xl font-bold text-green-800 transition-all',
+                  isRevenueAnimating && 'scale-105'
+                )}>
+                  {formatCurrency(animatedRevenue)}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <LiveIndicator isLive={true} size="lg" />
+              <span className="text-sm font-medium text-green-700">
+                {newTransactionsCount > 0 && (
+                  <span className="mr-2 rounded-full bg-green-200 px-2 py-0.5 text-xs">
+                    +{newTransactionsCount} nouveau{newTransactionsCount > 1 ? 'x' : ''}
+                  </span>
+                )}
+                Mise a jour automatique
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Charts and Live Feed */}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Live Revenue Chart */}
         <div className="lg:col-span-2">
-          {isLiveMode && revenuePoints.length > 0 ? (
+          {isLiveMode && liveRevenuePoints.length > 0 ? (
             <LiveRevenue
-              revenuePoints={revenuePoints}
+              revenuePoints={liveRevenuePoints}
               currentStats={convertedStats}
               loading={false}
               title="Revenue en temps reel"
@@ -255,13 +398,23 @@ export default function FestivalDashboardPage() {
 
         {/* Live Transactions Feed */}
         <div className="lg:col-span-1">
-          {isLiveMode && liveTransactions.length > 0 ? (
-            <LiveTransactions
-              transactions={liveTransactions}
-              loading={false}
-              maxItems={10}
-              title="Transactions en direct"
-            />
+          {isLiveMode && formattedLiveTransactions.length > 0 ? (
+            <div className="relative">
+              <LiveTransactions
+                transactions={formattedLiveTransactions}
+                loading={false}
+                maxItems={10}
+                title="Transactions en direct"
+              />
+              {liveTransactions.length > 0 && (
+                <button
+                  onClick={clearTransactions}
+                  className="absolute right-4 top-4 text-xs text-gray-500 hover:text-gray-700"
+                >
+                  Effacer
+                </button>
+              )}
+            </div>
           ) : (
             <ActivityFeed
               activities={activities || []}
@@ -405,7 +558,10 @@ export default function FestivalDashboardPage() {
           <div className="flex items-center gap-3">
             <TrendingUp className="h-6 w-6 text-primary" />
             <div>
-              <h3 className="font-semibold text-gray-900">Performance du Festival</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-gray-900">Performance du Festival</h3>
+                {isLive && <LiveIndicator isLive={true} />}
+              </div>
               <p className="text-sm text-gray-600">
                 Solde moyen portefeuille: {formatCurrency(convertedStats.average_wallet_balance)} |
                 Volume transactions: {formatCurrency(convertedStats.transaction_volume)} |

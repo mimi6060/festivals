@@ -20,7 +20,8 @@
       "bundleIdentifier": "app.festivals.mobile",
       "infoPlist": {
         "NSCameraUsageDescription": "Permet de scanner les QR codes pour les paiements et l'entrée",
-        "NSLocationWhenInUseUsageDescription": "Permet de vous localiser sur la carte du festival"
+        "NSLocationWhenInUseUsageDescription": "Permet de vous localiser sur la carte du festival",
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
     "android": {
@@ -31,8 +32,11 @@
       "package": "app.festivals.mobile",
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.ACCESS_FINE_LOCATION"
-      ]
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",
@@ -52,6 +56,15 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Permet de vous localiser sur la carte"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#6366F1",
+          "sounds": [],
+          "mode": "production"
         }
       ],
       [

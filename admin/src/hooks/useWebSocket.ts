@@ -24,6 +24,7 @@ export interface StatsUpdate {
   tickets_sold: number
   tickets_used: number
   active_wallets: number
+  active_users?: number
   today_transactions: number
   transaction_volume: number
   average_wallet_balance: number

@@ -12,6 +12,7 @@ import { useSyncStore, PendingTransaction } from '@/stores/syncStore';
 import { useStaffStore, Product, Stand } from '@/stores/staffStore';
 import { SyncError } from './engine';
 import { ConflictData } from './conflict';
+import { logger } from '@/lib/logger';
 
 // Strategy result interface
 export interface StrategyResult {
@@ -84,7 +85,7 @@ export class TransactionSyncStrategy implements SyncStrategy {
       return { success: true, syncedCount: 0, errors: [], conflicts: [] };
     }
 
-    console.log(`[TransactionSync] Syncing ${pendingTransactions.length} transactions`);
+    logger.transactionSync.info(`Syncing ${pendingTransactions.length} transactions`);
 
     // Sort by creation time (oldest first)
     const sortedTransactions = [...pendingTransactions].sort(
@@ -117,7 +118,7 @@ export class TransactionSyncStrategy implements SyncStrategy {
           walletStore.markTransactionSynced(transaction.id);
 
           syncedCount++;
-          console.log(`[TransactionSync] Transaction ${transaction.id} synced successfully`);
+          logger.transactionSync.debug(`Transaction ${transaction.id} synced successfully`);
         } else if (result.conflict) {
           // Handle conflict
           conflicts.push({
@@ -243,7 +244,7 @@ export class WalletSyncStrategy implements SyncStrategy {
     const walletStore = useWalletStore.getState();
 
     try {
-      console.log('[WalletSync] Fetching wallet balance');
+      logger.walletSync.info('Fetching wallet balance');
 
       // Fetch balance from server
       const serverBalance = await this.fetchBalance();
@@ -262,7 +263,7 @@ export class WalletSyncStrategy implements SyncStrategy {
 
         // Server wins for wallet balance
         walletStore.setBalance(serverBalance);
-        console.log(`[WalletSync] Balance conflict resolved: ${localBalance} -> ${serverBalance}`);
+        logger.walletSync.debug(`Balance conflict resolved: ${localBalance} -> ${serverBalance}`);
       }
 
       syncedCount++;
@@ -274,7 +275,7 @@ export class WalletSyncStrategy implements SyncStrategy {
       // Update last sync time
       await this.setLastSyncTime();
 
-      console.log('[WalletSync] Wallet synced successfully');
+      logger.walletSync.info('Wallet synced successfully');
       return { success: true, syncedCount, errors, conflicts };
 
     } catch (error) {
@@ -344,12 +345,12 @@ export class ProductSyncStrategy implements SyncStrategy {
     const staffStore = useStaffStore.getState();
 
     try {
-      console.log('[ProductSync] Fetching product catalog');
+      logger.productSync.info('Fetching product catalog');
 
       // Check if we need to sync (using ETag or last-modified)
       const needsSync = await this.needsSync();
       if (!needsSync) {
-        console.log('[ProductSync] Products are up to date');
+        logger.productSync.debug('Products are up to date');
         return { success: true, syncedCount: 0, errors, conflicts };
       }
 
@@ -364,7 +365,7 @@ export class ProductSyncStrategy implements SyncStrategy {
         await this.cacheProducts(products);
 
         syncedCount = products.length;
-        console.log(`[ProductSync] Synced ${products.length} products`);
+        logger.productSync.info(`Synced ${products.length} products`);
       }
 
       // Update last sync time
@@ -387,10 +388,10 @@ export class ProductSyncStrategy implements SyncStrategy {
         const cachedProducts = await this.loadCachedProducts();
         if (cachedProducts.length > 0) {
           staffStore.setProducts(cachedProducts);
-          console.log(`[ProductSync] Loaded ${cachedProducts.length} products from cache`);
+          logger.productSync.debug(`Loaded ${cachedProducts.length} products from cache`);
         }
       } catch (cacheError) {
-        console.error('[ProductSync] Failed to load cached products:', cacheError);
+        logger.productSync.error('Failed to load cached products:', cacheError);
       }
 
       return { success: false, syncedCount, errors, conflicts };
@@ -468,12 +469,12 @@ export class StandSyncStrategy implements SyncStrategy {
     const staffStore = useStaffStore.getState();
 
     try {
-      console.log('[StandSync] Fetching stand information');
+      logger.standSync.info('Fetching stand information');
 
       // Check if we need to sync
       const needsSync = await this.needsSync();
       if (!needsSync) {
-        console.log('[StandSync] Stands are up to date');
+        logger.standSync.debug('Stands are up to date');
         return { success: true, syncedCount: 0, errors, conflicts };
       }
 
@@ -494,7 +495,7 @@ export class StandSyncStrategy implements SyncStrategy {
         }
 
         syncedCount = stands.length;
-        console.log(`[StandSync] Synced ${stands.length} stands`);
+        logger.standSync.info(`Synced ${stands.length} stands`);
       }
 
       // Update last sync time
